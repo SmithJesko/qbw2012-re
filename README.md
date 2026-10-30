@@ -19,7 +19,7 @@ Undo the pattern and you get the original database back. The trick is figuring o
   - `start` = a single per-file key + the page number + the chunk number. One number per file unlocks the starting value of every chunk.
   - `step` comes from a per-file sequence. Its exact formula isn't known yet, but it can be recovered statistically, because databases are mostly zero bytes and the right `step` makes those zeros reappear.
 
-Applying this to the QuickBooks 2012 sample companies recovers readable data: the database's internal table catalog, the company names ("Rock Castle Construction, Inc.", "Larry's Landscaping & Supply"), customers, jobs and report names.
+Applying this to the QuickBooks 2012 sample companies recovers the full database: table catalog, column definitions and rows. Invoices, bills, checks, deposits and journal entries export to SQLite, and every transaction's posting lines sum to zero, which checks the decoding without needing QuickBooks.
 
 The full technical findings, with evidence, are in [NOTES.md](NOTES.md).
 
@@ -33,7 +33,9 @@ The full technical findings, with evidence, are in [NOTES.md](NOTES.md).
 | Closed-form `step` formula | open |
 | Read the table catalog (names, ids) | done |
 | Locate each table's pages, split rows | done (98.6% of rows check out) |
-| Decode column values | next |
+| Decode column values | done (invoices, bills, checks, customers, ...) |
+| Export to SQLite, accounting self-checks | done (every transaction type balances) |
+| One-step tool from the raw `.qbw` | next |
 | Port into OpenSQLAnywhere / OpenQBW | planned |
 
 ## Layout
@@ -46,6 +48,9 @@ The full technical findings, with evidence, are in [NOTES.md](NOTES.md).
   - `decode11.py`: unscramble a whole file.
   - `systable_tag.py`, `catalog11.py`: find and list table catalog rows.
   - `rowpage11.py`: un-rotate row pages and check row boundaries.
+  - `sector7.py`: learn the sector-7 correction rows.
+  - `page11.py`, `schema11.py`: row pages, table schemas, typed row decoding.
+  - `export11.py`: write every decodable table to SQLite.
 - `out/`: generated tables (git-ignored).
 
 ## Ground rules
@@ -62,7 +67,11 @@ Work on a **copy** of the file. Python 3, no dependencies:
 python3 -I scripts/pagecheck.py copy.qbw
 python3 -I scripts/apstep.py copy.qbw other.qbw scripts/apmodel11.py out/steps.json   # ~3.5 min
 python3 -I scripts/decode11.py copy.qbw <K> out/steps.json out/copy.plain
+python3 -I scripts/sector7.py out/c7.json out/copy.plain                        # learn sector-7 rows
+python3 -I scripts/export11.py out/copy.plain out/c7.json out/copy.sqlite
 ```
+
+`K` is the most common `base - page - sector` value that `apmodel11.py` prints. A single command from the raw file is next on the list.
 
 ## License
 

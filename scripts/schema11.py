@@ -12,6 +12,7 @@ A typed walk is accepted only if it ends exactly on the row length.
 """
 import collections
 import datetime
+import decimal
 import re
 import struct
 
@@ -54,6 +55,23 @@ def parse_tabcol(row):
     )
 
 
+def load_names(data, c7=None):
+    """table_id -> name from ISYSTAB rows (owner id 1): +4 u32 table_id,
+    +54 u8 name length, +55 name (OpenQBW#22 section 5.3)."""
+    names = {}
+    for p in iter_pages(data, c7=c7):
+        if p.owner != 1:
+            continue
+        for _, row, trusted in p.rows():
+            r = strip_extra(row)
+            if not trusted or len(r) < 56:
+                continue
+            name = r[55:55 + r[54]]
+            if re.fullmatch(rb"[A-Za-z_][A-Za-z0-9_]*", name):
+                names[struct.unpack_from("<I", r, 4)[0]] = name.decode()
+    return names
+
+
 def load_schema(data, c7=None):
     """table_id -> list of column dicts sorted by column_id.
 
@@ -94,7 +112,7 @@ def read_numeric(r, o):
     for x in reversed(digits):
         coef = coef * 100 + x
     exp = (ctrl & 0x7F) - 64
-    val = coef * (100 ** exp) if exp >= 0 else coef / (100 ** -exp)
+    val = decimal.Decimal(coef).scaleb(2 * exp) if coef else decimal.Decimal(0)
     return (-val if ctrl & 0x80 else val), o + 2 + k
 
 

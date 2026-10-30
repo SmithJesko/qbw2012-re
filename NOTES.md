@@ -75,9 +75,43 @@ Grouping row pages by owner table id (F7) and counting live slots, compared agai
 - **-12 = page count**: exact match on 95 tables (`abmc_invoice_header` 6 pages, `abmc_invoice_lineitem` 86).
 - Mismatches come from old page versions or stale catalog rows (`ISYSVIEW` 125 pages found vs 6), tables whose pages aren't `0x04` kind (`abmc_customer_user`, `abmc_received_payment_header`: 0 pages found), and partial coverage of the largest table (`abmc_audit_lineitem` 378 of 1478 pages).
 
+### F9. Sector 7 on SA11 (OpenSQLAnywhere#16 section 4)
+The sector-7 model holds: after the per-sector fill, sector 7 still carries `d * C[r7](i)` with odd `d` and `C` in 0..16, then a rotation over the 512-byte unit that includes the plaintext trailer, with a 16-byte displaced block.
+- `r7 = rot6` on odd pages, `rot6 - 2` on even pages (F7 parity rule).
+- `C[r7]` is format-wide: rows learned from the two 2012 samples never conflict. 79 rows are exact (pages whose sector 7 is all `d * C`), 50 more come from per-position voting, then a second vote using each page's own `d` (`scripts/sector7.py`, `out/c7.json`). That covers the 129 `r7` values in use.
+- `d` drifts across the file (123 to 151 on Rock Castle, around 201 on Larry's), so it's chosen per page from all 128 odd values: most rows chaining in sector 7, then most zero bytes. With the fixed 6 most common values only 38% of sector-7 rows chained; per-page choice gives 95%.
+- Voting with the wrong `d` left single-byte errors in voted rows (sawtooth breaks such as `15 11 6 3`) that hid column definitions; the second vote removed them.
+
+### F10. Row pages, schema and typed rows
+- Row pages are trailer types `5` and `7` (`E`, `G`). Type `7` was 1138 pages on Rock Castle: most of the audit trail and all of `abmc_customer_user`. Header byte 16 is `0x04`; `0x0d` / `0x0a` pages hold page-number lists (index pages), and type `1` pages have byte 16 = `0x05` (not decoded).
+- ISYSTAB (owner 1) and ISYSTABCOL (owner 2) rows match OpenQBW#22 section 5 byte for byte. ISYSTAB gives 593 names on Rock Castle. Column definitions added by later releases live in sector 7 of catalog pages, so the schema is only complete once F9 works.
+- Rows follow OpenQBW#22 sections 1 to 3: `u16 len, u8 flags, null bitmap (ceil(nullable / 8), MSB first, set = present), values in column_id order`; NUMERIC is base-100, text is `u8 len + bytes`.
+- Exact typed walks (cursor ends on the row length): 89.5% of rows overall on Rock Castle; 100% for `abmc_invoice_header` (113), `abmc_customer_user` (147), `abmc_account_user` (144); 1237 / 1238 invoice lines. Failures are mostly SA system tables (`ISYSCOLSTAT`, `ISYSVIEW`, `ISYSSOURCE`).
+- Stale step-table entries exist: pages 1963 to 1966 have no page-number anchor because the recovered `step` for slots 982 and 983 is wrong (65 and 31 fit, with the expected `base`). A header-validated step search would fix these.
+
+### F11. Date epoch is 1600-02-29, not 1600-01-01 (corrects F5)
+OpenQBW#22 gives minute 0 = 1600-02-29. Invoice rows confirm it from the file alone: the plain integer `timestamp_tms` (Unix seconds, 933288149 = 1999-07-29 22:42:29 UTC) equals `db_created_tms` (domain 13) read with that epoch, to the second, on every row checked. The F5 dates are therefore 59 days late: the Rock Castle database creation stamp is 2009-08-31, not 2009-07-03. The F5 finding (the field is a timestamp, superblock 0x2A is the creation time) is unchanged.
+
+### F12. Export and accounting self-checks
+`scripts/export11.py` writes every decodable table to SQLite (exact decimal text for NUMERIC, ISO 8601 for dates) plus an `_export_report` table. Checks that need no outside reference:
+- Exported row count equals the SYSTABLE row count (F6 -24 field) for 88 of 101 tables on Rock Castle and 72 of 82 on Larry's.
+- Posting lines (non-null `account_id`) sum to zero per transaction:
+
+| | Rock Castle | Larry's |
+|---|---|---|
+| invoices | 112 / 113 | 161 / 161 |
+| bills | 197 / 197 | 111 / 111 |
+| checks | 233 / 233 | 60 / 60 |
+| deposits | 88 / 88 | 46 / 46 |
+| general journal | 66 / 66 | 20 / 20 |
+| sales receipts | 8 / 8 | 21 / 21 |
+
+The one Rock Castle invoice that doesn't balance is missing its single undecoded line row.
+
 ## Open questions / next steps
 1. Closed form (or table + key derivation) for `T[k]`, and how `K` relates to the superblock (candidates: `file_id_lo` @0x08, 0x20..0x2C, 0x2BC..). That would remove the brute-force pass.
 2. Fix weak slots: per-slot confidence, and check the 155 low-zero pages.
-3. Model sector 7 and the `0x0d` page kind; pick live vs stale page versions (checkpoint copies per #16). Bridge SYSCOLUMN owners to table_id to get column names, then decode typed columns.
-4. Report F5 upstream as a spec correction (SPECIFICATION.md sections 3.1 and 5).
-5. Port into OpenSQLAnywhere: version detection from the page-0 fingerprint, `ApModel` variant for SA11, page-type masking, CRC optional.
+3. Header-validated step search for slots the statistical recovery gets wrong (F10); out-of-row long values (blob chunk pages, kinds 0x11..0x14); stale row versions on kinds 1/2.
+4. Posted F5 upstream as OpenQBW issue; post the F11 epoch correction there.
+5. End-to-end tool from the raw `.qbw` (find `K`, steps, sector 7) instead of separate scripts.
+6. Port into OpenSQLAnywhere: version detection from the page-0 fingerprint, `ApModel` variant for SA11, page-type masking, CRC optional.
