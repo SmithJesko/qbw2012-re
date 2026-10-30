@@ -1,0 +1,10 @@
+# Never commit company files or anything decoded from them
+*.qbw
+*.QBW
+*.tlg
+*.TLG
+*.qbb
+*.plain
+*.sqlite
+out/
+__pycache__/
