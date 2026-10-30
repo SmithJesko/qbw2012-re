@@ -15,6 +15,7 @@ Without a row for the page's rotation, bytes from 0xE00 on are untrusted.
 from rowpage11 import logical_page
 
 PAGE = 4096
+ROW_PAGE_TYPES = (5, 7)  # trailer type byte, 0x40 bit cleared ('E', 'G')
 SAFE_END = 0xE00
 ROW_END = 4092
 
@@ -55,7 +56,7 @@ def iter_pages(data, kinds=None, c7=None):
     """Yield row pages; c7 = load_c7(...) enables sector 7."""
     for pn in range(1, len(data) // PAGE):
         raw = data[pn * PAGE:(pn + 1) * PAGE]
-        if raw[0xFF2] & 0xBF != 5:
+        if raw[0xFF2] & 0xBF not in ROW_PAGE_TYPES:
             continue
         res = logical_page(raw, pn, c7=c7)
         if res is None or res[0][16] != 4:
