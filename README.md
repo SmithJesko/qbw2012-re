@@ -35,7 +35,8 @@ The full technical findings, with evidence, are in [NOTES.md](NOTES.md).
 | Locate each table's pages, split rows | done (98.6% of rows check out) |
 | Decode column values | done (invoices, bills, checks, customers, ...) |
 | Export to SQLite, accounting self-checks | done (every transaction type balances) |
-| One-step tool from the raw `.qbw` | next |
+| One-step tool from the raw `.qbw` | done (`scripts/qbw2012.py`) |
+| Test on more 2012 files | needs files |
 | Port into OpenSQLAnywhere / OpenQBW | planned |
 
 ## Layout
@@ -51,6 +52,9 @@ The full technical findings, with evidence, are in [NOTES.md](NOTES.md).
   - `sector7.py`: learn the sector-7 correction rows.
   - `page11.py`, `schema11.py`: row pages, table schemas, typed row decoding.
   - `export11.py`: write every decodable table to SQLite.
+  - `fill11.py`: fast fill recovery (key, steps, step repair).
+  - `qbw2012.py`: the one-step tool.
+- `data/`: format tables the tool needs.
 - `out/`: generated tables (git-ignored).
 
 ## Ground rules
@@ -59,19 +63,19 @@ The full technical findings, with evidence, are in [NOTES.md](NOTES.md).
 - **No company files or decoded data in the repo.** `.qbw` files and decoded output are git-ignored.
 - Read-only: this only reads copies of files the owner can already open.
 
-## Running the scripts
+## Usage
 
-Work on a **copy** of the file. Python 3, no dependencies:
+Work on a **copy** of the company file. Python 3, standard library only:
 
 ```bash
-python3 -I scripts/pagecheck.py copy.qbw
-python3 -I scripts/apstep.py copy.qbw other.qbw scripts/apmodel11.py out/steps.json   # ~3.5 min
-python3 -I scripts/decode11.py copy.qbw <K> out/steps.json out/copy.plain
-python3 -I scripts/sector7.py out/c7.json out/copy.plain                        # learn sector-7 rows
-python3 -I scripts/export11.py out/copy.plain out/c7.json out/copy.sqlite
+python3 -I scripts/qbw2012.py copy.qbw books.sqlite
 ```
 
-`K` is the most common `base - page - sector` value that `apmodel11.py` prints. A single command from the raw file is next on the list.
+This takes one to two minutes and writes one SQLite table per QuickBooks table, plus `_export_report` (exported rows against the row count the file's own catalog records). Money is exact decimal text and dates are ISO 8601. The runbook's SQLite-to-CSV/JSON loop works on the result as is.
+
+`data/c7_sa11.json` is a format table (sector-7 correction rows, NOTES F9) learned from the two 2012 sample companies. It holds no company data.
+
+The individual analysis scripts in `scripts/` reproduce each finding in NOTES.md.
 
 ## License
 

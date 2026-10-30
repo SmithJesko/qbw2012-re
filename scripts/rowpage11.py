@@ -22,9 +22,13 @@ def load_c7(path):
 
 
 def find_r0(sec0, pn):
+    """Position of the page number in decoded sector 0. With several hits,
+    the one whose header has byte 16 == 0x04 wins, if it is unique."""
     key = pn.to_bytes(4, "little")
     ring = sec0 + sec0[:3]
     hits = [i for i in range(SECTOR) if ring[i:i + 4] == key]
+    if len(hits) > 1:
+        hits = [h for h in hits if sec0[(h + 16) % SECTOR] == 4]
     return hits[0] if len(hits) == 1 else None
 
 

@@ -63,11 +63,9 @@ def page_multiplier(pg, r7, crow, head):
     return best[1] if best[0][1] else None
 
 
-def learn(paths):
-    pages = []
-    for path in paths:
-        for pn, r7, pg in sector7_pages(open(path, "rb").read()):
-            pages.append((pn, r7, pg))
+def learn(datas):
+    """Learn C rows from decoded files (bytes). Returns (exact, voted, d counts)."""
+    pages = [p for data in datas for p in sector7_pages(data)]
     rows, ds = {}, collections.Counter()
     for _, r7, pg in pages:
         res = pg[0xE00:0xFF0]
@@ -113,7 +111,7 @@ def learn(paths):
 
 
 if __name__ == "__main__":
-    rows, partial, ds = learn(sys.argv[2:])
+    rows, partial, ds = learn([open(p, "rb").read() for p in sys.argv[2:]])
     full = {str(k): list(v) for k, v in rows.items()}
     filled = {str(k): v for k, v in partial.items() if None not in v}
     print(f"exact rows {len(rows)}, voted rows complete {len(filled)} of {len(partial)}; d: {ds.most_common(6)}")

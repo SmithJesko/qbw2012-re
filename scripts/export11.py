@@ -29,8 +29,10 @@ def sql_value(v):
 
 
 def main(decoded, c7_path, out):
-    data = open(decoded, "rb").read()
-    c7 = load_c7(c7_path)
+    export(open(decoded, "rb").read(), load_c7(c7_path), out)
+
+
+def export(data, c7, out):
     names = load_names(data, c7)
     schema = load_schema(data, c7)
     counts = {r["table_id"]: r["rows"] for r in catalog(data)}

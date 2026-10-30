@@ -108,10 +108,13 @@ OpenQBW#22 gives minute 0 = 1600-02-29. Invoice rows confirm it from the file al
 
 The one Rock Castle invoice that doesn't balance is missing its single undecoded line row.
 
+### F13. Fast step recovery
+For a byte at odd index `i`, the step that makes it zero is unique: `(stored - base) * inverse(i) mod 256`. Voting with that per slot (`scripts/fill11.py`) takes 1.6 s on Rock Castle instead of about 3.5 minutes, and agrees with the slow table on 3865 / 3870 slots. Slots that still hide a row page's anchor are repaired by searching the step that gives exactly one valid header (6 slots on Rock Castle, 0 on Larry's).
+
 ## Open questions / next steps
 1. Closed form (or table + key derivation) for `T[k]`, and how `K` relates to the superblock (candidates: `file_id_lo` @0x08, 0x20..0x2C, 0x2BC..). That would remove the brute-force pass.
 2. Fix weak slots: per-slot confidence, and check the 155 low-zero pages.
 3. Header-validated step search for slots the statistical recovery gets wrong (F10); out-of-row long values (blob chunk pages, kinds 0x11..0x14); stale row versions on kinds 1/2.
 4. Posted F5 upstream as OpenQBW issue; post the F11 epoch correction there.
-5. End-to-end tool from the raw `.qbw` (find `K`, steps, sector 7) instead of separate scripts.
+5. Test `scripts/qbw2012.py` on a third 2012 file: the bundled sector-7 table was learned from the same two samples it's checked against.
 6. Port into OpenSQLAnywhere: version detection from the page-0 fingerprint, `ApModel` variant for SA11, page-type masking, CRC optional.
