@@ -28,9 +28,9 @@ Applying this to the two QuickBooks 2012 sample companies recovers the full data
 | Rows that don't decode | 874 (1.3%), 4 in QuickBooks tables | 869 (1.9%), 0 in QuickBooks tables |
 | Stored account balances reproduced from the exported transactions, to the cent | **144 / 144** | **107 / 107** |
 | Transactions whose posting lines sum to zero | all, 14 types | all, 13 types |
-| Tables whose exported row count equals the file's own catalog count | 96 / 102 | 90 / 95 |
+| Tables whose exported row count equals the file's own catalog count | 96 / 105 | 90 / 99 |
 
-Every QuickBooks business table matches its catalog row count; the remaining differences are SQL Anywhere's own system tables. None of this needs QuickBooks to check, so the work stays clean-room.
+Every QuickBooks table matches its catalog row count except two: Rock Castle's audit trail (23,746 of 23,748 rows) and Larry's `abmc_estimate_header` (the catalog says 7 rows, but only index pages for it are found). The other differences are SQL Anywhere's own system tables. None of this needs QuickBooks to check, so the work stays clean-room.
 
 The full technical findings, with evidence, are in [NOTES.md](NOTES.md).
 
@@ -54,7 +54,7 @@ The full technical findings, with evidence, are in [NOTES.md](NOTES.md).
 - Tested on the two QuickBooks 2012 sample companies only. The bundled sector-7 table was learned from the same two files, so a new file is the real test; the self-checks will show whether it worked.
 - About 1 to 2% of rows don't decode, all but 4 of them (on Rock Castle) in SQL Anywhere's own system tables. They are left out rather than guessed; `_export_report` lists them per table.
 - Some SQL Anywhere system values (view and procedure sources) are stored compressed and aren't decoded.
-- Older row versions that the database keeps around are not filtered out.
+- Older row versions that the database keeps around are not filtered out. `check11.py` reports any table that repeats its own id; none do on the two samples.
 
 ## Layout
 
@@ -72,8 +72,9 @@ The full technical findings, with evidence, are in [NOTES.md](NOTES.md).
   - `fill11.py`: fast fill recovery (key, steps, step repair).
   - `qbw2012.py`: the one-step tool.
   - `check11.py`: self-checks on an export.
+- `tests/`: unit tests on synthetic bytes (`python3 -I -m unittest discover -s tests`).
 - `data/`: format tables the tool needs.
-- `out/`: generated tables (git-ignored).
+- `out/`: generated tables (git-ignored, as are `csv/`, `json/` and `*.csv`).
 
 ## Ground rules
 
@@ -89,18 +90,19 @@ Work on a **copy** of the company file. Python 3, standard library only:
 python3 -I scripts/qbw2012.py copy.qbw books.sqlite
 ```
 
-This takes one to two minutes and writes one SQLite table per QuickBooks table, plus `_export_report` (exported rows against the row count the file's own catalog records). Long text such as memos and notes is reassembled in full; binary long values are stored as BLOBs. It then runs the self-checks and prints, for example:
+This takes two to three minutes and writes one SQLite table per QuickBooks table, plus `_export_report`: one row per table with exported rows, rows that didn't decode, and the row count the file's own catalog records (tables where nothing decoded are listed too). Long text such as memos and notes is reassembled in full; binary long values are stored as BLOBs. It then runs the self-checks and prints, for example:
 
 ```
-catalog: 96 / 102 tables match the SYSTABLE row count
+catalog: 96 / 105 tables match the SYSTABLE row count
 transactions (posting lines sum to zero):
   abmc_bill_lineitem                       197 / 197
   abmc_invoice_lineitem                    113 / 113
   ...
 accounts: 144 / 144 stored ending balances match the posting lines (stored balances sum to 0.00)
+duplicates: none (no table repeats its own id)
 ```
 
-Any account that doesn't match is listed with its stored and computed balance, and the exit status is 1. `python3 -I scripts/check11.py books.sqlite` reruns the checks on an existing export. Money is exact decimal text and dates are ISO 8601. To dump every table to CSV:
+Money is compared as integer cents. Any account that doesn't match is listed with its stored and computed balance, and the exit status is 1; repeated ids are reported but don't change the exit status. `python3 -I scripts/check11.py books.sqlite` reruns the checks on an existing export. In the export, money is exact decimal text, dates are ISO 8601, and text is decoded as windows-1252, the file's character set. To dump every table to CSV:
 
 ```bash
 mkdir -p csv

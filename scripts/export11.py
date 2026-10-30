@@ -82,8 +82,14 @@ def export(data, c7, out):
         marks = ", ".join("?" for _ in cols)
         db.executemany(f'INSERT INTO "{name}" VALUES ({marks})',
                        [[sql_value(r.get(c["name"])) for c in cols] for r in rows[tid]])
+    # One report row per table that exported rows, failed rows, or has a
+    # catalog row count, so a table whose rows all fail still shows up.
+    # Catalog-only ids must be named in ISYSTAB (the tag scan can misread ids).
+    report = set(rows) | set(failed) | (set(counts) & set(names))
+    for tid in sorted(report):
         db.execute("INSERT INTO _export_report VALUES (?, ?, ?, ?, ?, ?)",
-                   (name, tid, len(rows[tid]), failed.get(tid, 0), counts.get(tid), partial.get(tid, 0)))
+                   (names.get(tid), tid, len(rows.get(tid, ())), failed.get(tid, 0),
+                    counts.get(tid), partial.get(tid, 0)))
     db.commit()
     exported = sum(len(v) for v in rows.values())
     print(f"{len(rows)} tables, {exported} rows, {sum(failed.values())} rows not decoded, "

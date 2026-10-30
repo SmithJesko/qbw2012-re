@@ -8,3 +8,7 @@
 *.sqlite
 out/
 __pycache__/
+# CSV/JSON dumps of an export (README); data/*.json is a format table and stays tracked
+csv/
+json/
+*.csv

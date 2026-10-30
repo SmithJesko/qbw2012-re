@@ -142,10 +142,27 @@ Every transaction's posting lines also sum to zero on both files, across 14 tran
 ### F17. Forwarded rows
 A 9-byte row with flags `0x04` is a forwarding stub: `u16 len = 9, u8 flags, u32 page, u16 slot`, e.g. `09 00 04 1c 17 00 00 0c 00` points at page 5916, slot 12. The moved row sits on a kind `0x11..0x14` page of the same table and decodes normally there (F14 already exports it), so the stub is skipped. On Rock Castle these were 83 `es_paycheck_lineitem`, 12 `es_paycheck_header` and 10 `abmc_vendor_user` rows that had been counted as failures.
 
+### F18. Export and check hardening; current results
+- Text decodes as windows-1252 (F1's character set) instead of latin-1. The 5 bytes cp1252 leaves undefined (0x81, 0x8D, 0x8F, 0x90, 0x9D) fall back to latin-1, so the decode stays lossless (`schema11.decode_text`, covered by `tests/test_decode.py`).
+- `_export_report` now has a row for every table that exported rows, failed rows, or has a SYSTABLE row count (catalog ids must be named in ISYSTAB). Tables where nothing decoded used to be left out, which hid them from the catalog check: the denominators grow from 102 to 105 (Rock Castle) and from 95 to 99 (Larry's).
+- `check11.py` sums money as integer cents from the exported decimal text. Account and transaction results are unchanged: 144 / 144 and 107 / 107 accounts match, and every transaction balances.
+- Duplicate check: no table repeats its own id on either sample, so the older row versions the database keeps (kinds 1 and 2) don't produce duplicate rows in the export. The id column is chosen by name, because ISYSIDX / ISYSIDXCOL (the index catalog, which would give the real primary keys) don't decode yet; taking each table's first column instead flagged 19 tables whose first column is a reference (`abmc_role_action.company_id`, `abmc_item_history.item_id`).
+- `abmc_estimate_header` on Larry's: SYSTABLE says 7 rows, but the only pages carrying its owner id (768) are 13 type-1 pages with header byte 16 = 0x05, the index page format. No row pages and no failed rows, so either the catalog count is stale or the rows live in a page format not read yet.
+
+Current results with `scripts/qbw2012.py`:
+
+| | Rock Castle | Larry's |
+|---|---|---|
+| Rows exported (tables) | 65747 (144) | 43979 (134) |
+| Rows not decoded (in `abmc_*` / `es_*` tables) | 874 (4) | 869 (0) |
+| Accounts matching stored balance | 144 / 144 | 107 / 107 |
+| Catalog row-count matches | 96 / 105 | 90 / 99 |
+| Repeated own ids | none | none |
+
 ## Open questions / next steps
 1. Closed form (or table + key derivation) for `T[k]`, and how `K` relates to the superblock (candidates: `file_id_lo` @0x08, 0x20..0x2C, 0x2BC..). That would remove the brute-force pass.
 2. Fix weak slots: per-slot confidence, and check the 155 low-zero pages.
-3. Remaining row-count gaps are outside the business data: SA system tables (`ISYSVIEW`, `ISYSSOURCE`, `ISYSDEPENDENCY`, `ISYSCOLSTAT`), internal `I_*` tables, and 2 of 23748 audit rows on Rock Castle. Some SA system long values look compressed and aren't decoded.
+3. `abmc_estimate_header` on Larry's (F18). Other row-count gaps are outside the business data: SA system tables (`ISYSVIEW`, `ISYSSOURCE`, `ISYSDEPENDENCY`, `ISYSCOLSTAT`), internal `I_*` tables, and 2 of 23748 audit rows on Rock Castle. Some SA system long values look compressed and aren't decoded. Decoding ISYSIDX / ISYSIDXCOL would give real primary keys for the duplicate check.
 4. Posted F5 upstream as OpenQBW issue; post the F11 epoch correction there.
 5. Test `scripts/qbw2012.py` on a third 2012 file: the bundled sector-7 table was learned from the same two samples it's checked against.
 6. Port into OpenSQLAnywhere: version detection from the page-0 fingerprint, `ApModel` variant for SA11, page-type masking, CRC optional.

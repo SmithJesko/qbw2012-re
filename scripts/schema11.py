@@ -18,7 +18,7 @@ import struct
 
 from page11 import iter_pages
 
-DATE_EPOCH = datetime.datetime(1600, 2, 29)  # issue #22; see NOTES F9
+DATE_EPOCH = datetime.datetime(1600, 2, 29)  # issue #22; see NOTES F11
 FIXED = {1: 2, 22: 2, 2: 4, 19: 4, 21: 4, 20: 8, 23: 8, 4: 4, 5: 8, 24: 1, 6: 4, 13: 8, 14: 8}
 TEXT = {7, 8, 9, 10, 11, 12, 28}
 BINARY = {11, 12, 28}  # long values of these domains hold binary data (NOTES F14)
@@ -26,12 +26,24 @@ NUMERIC = {3, 27}
 DOMAINS = set(FIXED) | TEXT | NUMERIC
 
 
+CP1252_UNDEFINED = b"\x81\x8d\x8f\x90\x9d"
+
+
+def decode_text(b):
+    """Decode stored text as windows-1252, the file's character set (NOTES
+    F1). The 5 bytes cp1252 leaves undefined map to the same code points as
+    latin-1, so the decode stays lossless and reversible."""
+    if not any(x in CP1252_UNDEFINED for x in b):
+        return b.decode("cp1252")
+    return "".join(bytes([x]).decode("latin-1" if x in CP1252_UNDEFINED else "cp1252") for x in b)
+
+
 class LongRef(collections.namedtuple("LongRef", "prefix total page unknown slot")):
     """Out-of-row long value: in-row prefix plus a 13-byte descriptor
     [00][u32 total_len][u32 first chunk page][u16 ?][u16 slot] (#22 2.3)."""
 
     def __str__(self):
-        return f"{self.prefix.decode('latin-1')}...<{self.total} bytes out of row>"
+        return f"{decode_text(self.prefix)}...<{self.total} bytes out of row>"
 
 
 def strip_extra(row):
@@ -129,7 +141,7 @@ def read_text(r, o, width):
     b = r[o]
     if width > 255 and b == 0xFF:
         n = int.from_bytes(r[o + 1:o + 3], "big")
-        return r[o + 3:o + 3 + n].decode("latin-1"), o + 3 + n
+        return decode_text(r[o + 3:o + 3 + n]), o + 3 + n
     if width > 255 and b & 0x80:
         k = b & 0x7F
         d = r[o + 1 + k:o + 1 + k + 13]
@@ -137,7 +149,7 @@ def read_text(r, o, width):
             raise ValueError("short descriptor")
         ref = LongRef(r[o + 1:o + 1 + k], *struct.unpack("<xIIHH", d))
         return ref, o + 1 + k + 13
-    return r[o + 1:o + 1 + b].decode("latin-1"), o + 1 + b
+    return decode_text(r[o + 1:o + 1 + b]), o + 1 + b
 
 
 def read_value(r, o, col):
@@ -210,7 +222,7 @@ def resolve_long(pages, ref, domain):
     if data is None or len(data) < ref.total:
         return str(ref), False
     data = data[:ref.total]
-    return (data if domain in BINARY else data.decode("latin-1")), True
+    return (data if domain in BINARY else decode_text(data)), True
 
 
 def chunk_bytes(pages, ref, limit=10000):
