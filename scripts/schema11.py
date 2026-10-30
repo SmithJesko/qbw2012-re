@@ -21,6 +21,7 @@ DATE_EPOCH = datetime.datetime(1600, 2, 29)  # issue #22; see NOTES F9
 FIXED = {1: 2, 22: 2, 2: 4, 19: 4, 21: 4, 20: 8, 23: 8, 4: 4, 5: 8, 24: 1, 6: 4, 13: 8, 14: 8}
 TEXT = {7, 8, 9, 10, 11, 12, 28}
 NUMERIC = {3, 27}
+DOMAINS = set(FIXED) | TEXT | NUMERIC
 
 
 def strip_extra(row):
@@ -38,10 +39,13 @@ def parse_tabcol(row):
     name = r[39:39 + n]
     if not re.fullmatch(rb"[A-Za-z_][A-Za-z0-9_$#@]*", name):
         return None
+    table_id, column_id, domain = struct.unpack_from("<IIH", r, 4)
+    if table_id >= 1 << 20 or not 0 < column_id < 4096 or domain not in DOMAINS:
+        return None
     return dict(
-        table_id=struct.unpack_from("<I", r, 4)[0],
-        column_id=struct.unpack_from("<I", r, 8)[0],
-        domain=struct.unpack_from("<H", r, 12)[0],
+        table_id=table_id,
+        column_id=column_id,
+        domain=domain,
         nullable=r[15] == ord("Y"),
         width=struct.unpack_from("<I", r, 16)[0],
         scale=struct.unpack_from("<H", r, 20)[0],
