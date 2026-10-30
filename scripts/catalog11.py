@@ -2,8 +2,8 @@
 
 Row shape around the tag (offsets relative to the tag start):
   -30  u32  table_id (compact per-table id, same position as SA17)
-  -24  u32  candidate: row count (unconfirmed)
-  -12  u32  candidate: second count (unconfirmed)
+  -24  u32  row count (matches live rows on the table's pages, NOTES F8)
+  -12  u32  page count (matches pages owned by the table, NOTES F8)
    +0  05 00 00 00 <tid u32> 00 00 00 00 <stamp u32> 00 00 00 00 <len u8> <name>
        stamp = minutes since 1600-01-01 (row change time)
   name+6  u16  unknown (not a column count: mostly 16, up to 32874)
@@ -37,8 +37,8 @@ def catalog(data):
             tid=u32(m.group(1), 0),
             stamp=u32(m.group(2), 0),
             table_id=u32(data, o - 30),
-            count_a=u32(data, o - 24),
-            count_b=u32(data, o - 12),
+            rows=u32(data, o - 24),
+            pages=u32(data, o - 12),
         )
         cur = best.get(row["name"])
         if cur is None or row["stamp"] > cur["stamp"]:
@@ -49,10 +49,10 @@ def catalog(data):
 if __name__ == "__main__":
     rows = catalog(open(sys.argv[1], "rb").read())
     pat = re.compile(sys.argv[2]) if len(sys.argv) > 2 else None
-    print(f"{'name':40} {'tid':>6} {'table_id':>8} {'count_a':>8} {'count_b':>7}  changed")
+    print(f"{'name':40} {'tid':>6} {'table_id':>8} {'rows':>8} {'pages':>7}  changed")
     for r in rows:
         if pat and not pat.search(r["name"]):
             continue
         when = EPOCH + datetime.timedelta(minutes=r["stamp"])
-        print(f"{r['name']:40} {r['tid']:6} {r['table_id']:8} {r['count_a']:8} {r['count_b']:7}  {when:%Y-%m-%d}")
+        print(f"{r['name']:40} {r['tid']:6} {r['table_id']:8} {r['rows']:8} {r['pages']:7}  {when:%Y-%m-%d}")
     print(f"# {len(rows)} distinct names", file=sys.stderr)

@@ -32,7 +32,8 @@ The full technical findings, with evidence, are in [NOTES.md](NOTES.md).
 | Undo the scrambling (`step`, statistical recovery) | working, ~98% of pages look clean |
 | Closed-form `step` formula | open |
 | Read the table catalog (names, ids) | done |
-| Locate each table's pages, decode rows | next |
+| Locate each table's pages, split rows | done (98.6% of rows check out) |
+| Decode column values | next |
 | Port into OpenSQLAnywhere / OpenQBW | planned |
 
 ## Layout
@@ -44,6 +45,7 @@ The full technical findings, with evidence, are in [NOTES.md](NOTES.md).
   - `apstep.py`: recover the per-file step table.
   - `decode11.py`: unscramble a whole file.
   - `systable_tag.py`, `catalog11.py`: find and list table catalog rows.
+  - `rowpage11.py`: un-rotate row pages and check row boundaries.
 - `out/`: generated tables (git-ignored).
 
 ## Ground rules

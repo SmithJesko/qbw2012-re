@@ -52,15 +52,32 @@ Tag shape matches SA17 apart from F5: `05 00 00 00 <tid u32> 00 00 00 00 <stamp 
 
 Offsets relative to the tag (`scripts/catalog11.py`):
 - **-30 `u32` table_id**: same position as SA17 (OpenQBW SPECIFICATION.md 5.1). Distinct and sequential across `abmc_*` (726, 727, 728, ...).
-- **-24 `u32`**: candidate row count. `abmc_invoice_header` 113, `abmc_invoice_lineitem` 1238, `abmc_customer_*` 147, `abmc_account_*` 144, empty tables 0. Unconfirmed.
-- **-12 `u32`**: candidate page count (invoice lines 86, about 14 rows per page). Unconfirmed.
+- **-24 `u32` row count**: `abmc_invoice_header` 113, `abmc_invoice_lineitem` 1238. Confirmed in F8.
+- **-12 `u32` page count**: `abmc_invoice_header` 6, `abmc_invoice_lineitem` 86. Confirmed in F8.
 - **-16**: constant `65 00 00 00`.
 - **name+6**: not a column count (SA17's position); mostly 16, values up to 32874.
-- SA17's `data_root_page` (name+34) and `last_page` (name+50) do not hold here. The root page location is open.
+- SA17's `data_root_page` (name+34) and `last_page` (name+50) do not hold here. Not needed: row pages name their owner table (F7).
+
+### F7. Row pages: per-sector rotation and page header (confirms OpenSQLAnywhere#16 on SA11)
+pete-green's structural write-up in OpenSQLAnywhere issue #16 (from QuickBooks Enterprise 24.0) holds on SA11 too. After removing the additive fill, each sector is rotated inside its 512-byte frame:
+- `r0` = position of the `u32_LE` page number in decoded sector 0. On Rock Castle 2012 it appears exactly once on 4055 of 4064 `E` pages, always at an odd position.
+- `rot_s = (r0 - 2 * ((s + q) // 2)) mod 512` for sectors 0..6, with `true[j] = decoded[(j + rot_s) mod 512]`.
+- **SA11 pairing phase**: `q = 0` on odd pages and `q = 1` on even pages. This follows from F3 (`step` is shared by `pn + s` pairs `(2k-1, 2k)`), and is simpler than #16's per-32-page-group rule.
+- Header (logical offsets): byte 16 = `0x04` on row pages (709 pages have `0x0d` instead, not handled yet), `u16 @22` slot count, `u32 @24` owner table id (= SYSTABLE -30 field), slot array at +28 with values relative to +28.
+- Check: each row starts with a `u16` length equal to the gap to the next row start. With the parity rule 98.6% of rows chain (80984 / 82172, sectors 0..6); fixed `q=0` or `q=1` gives 75%.
+- Sector 7 (extra additive term and displaced block per #16) is not modelled yet.
+
+`scripts/rowpage11.py`.
+
+### F8. SYSTABLE counts confirmed from the row pages
+Grouping row pages by owner table id (F7) and counting live slots, compared against the SYSTABLE fields from F6 (128 non-empty tables, Rock Castle 2012):
+- **-24 = row count**: exact match on 97 tables.
+- **-12 = page count**: exact match on 95 tables (`abmc_invoice_header` 6 pages, `abmc_invoice_lineitem` 86).
+- Mismatches come from old page versions or stale catalog rows (`ISYSVIEW` 125 pages found vs 6), tables whose pages aren't `0x04` kind (`abmc_customer_user`, `abmc_received_payment_header`: 0 pages found), and partial coverage of the largest table (`abmc_audit_lineitem` 378 of 1478 pages).
 
 ## Open questions / next steps
 1. Closed form (or table + key derivation) for `T[k]`, and how `K` relates to the superblock (candidates: `file_id_lo` @0x08, 0x20..0x2C, 0x2BC..). That would remove the brute-force pass.
 2. Fix weak slots: per-slot confidence, and check the 155 low-zero pages.
-3. SYSTABLE: find the table root page, then confirm the -24/-12 count candidates by counting rows on the table's own pages. Bridge SYSCOLUMN owners to table_id (-30) to get column names per table.
+3. Model sector 7 and the `0x0d` page kind; pick live vs stale page versions (checkpoint copies per #16). Bridge SYSCOLUMN owners to table_id to get column names, then decode typed columns.
 4. Report F5 upstream as a spec correction (SPECIFICATION.md sections 3.1 and 5).
 5. Port into OpenSQLAnywhere: version detection from the page-0 fingerprint, `ApModel` variant for SA11, page-type masking, CRC optional.
