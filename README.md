@@ -99,6 +99,6 @@ Analysis and code were developed with AI assistance.
 
 ## License
 
-Apache-2.0, the same as OpenQBW, so findings and code can move upstream freely. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 QuickBooks(R) is a registered trademark of Intuit Inc. SQL Anywhere(R) is a registered trademark of SAP SE. This project is independent and not affiliated with either.
