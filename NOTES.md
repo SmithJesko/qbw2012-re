@@ -64,7 +64,7 @@ pete-green's structural write-up in OpenSQLAnywhere issue #16 (from QuickBooks E
 - `rot_s = (r0 - 2 * ((s + q) // 2)) mod 512` for sectors 0..6, with `true[j] = decoded[(j + rot_s) mod 512]`.
 - **SA11 pairing phase**: `q = 0` on odd pages and `q = 1` on even pages. This follows from F3 (`step` is shared by `pn + s` pairs `(2k-1, 2k)`), and is simpler than #16's per-32-page-group rule.
 - Header (logical offsets): byte 16 = `0x04` on row pages (709 pages have `0x0d` instead, not handled yet), `u16 @22` slot count, `u32 @24` owner table id (= SYSTABLE -30 field), slot array at +28 with values relative to +28.
-- Check: each row starts with a `u16` length equal to the gap to the next row start. With the parity rule 98.6% of rows chain (80984 / 82172, sectors 0..6); fixed `q=0` or `q=1` gives 75%.
+- Check: each row starts with a `u16` length equal to the gap to the next row start. With the parity rule 98.6% of rows chain on Rock Castle (80984 / 82172, sectors 0..6) and 98.1% on Larry's (65528 / 66783); fixed `q=0` or `q=1` gives 74-75%. Larry's: page number found once on 2883 / 2889 `E` pages, always odd.
 - Sector 7 (extra additive term and displaced block per #16) is not modelled yet.
 
 `scripts/rowpage11.py`.
