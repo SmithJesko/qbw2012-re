@@ -20,16 +20,14 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from rowpage11 import find_r0, logical_page  # noqa: E402
+from rowpage11 import _plausibility, find_r0, logical_page, sector7_rotation  # noqa: E402
 
 INV = {x: pow(x, -1, 256) for x in range(1, 256, 2)}
 N7 = 496
 
 
 def r7_for(pn, r0):
-    q = 0 if pn & 1 else 1
-    rot6 = (r0 - 2 * ((6 + q) // 2)) % 512
-    return rot6 if q == 0 else (rot6 - 2) % 512
+    return sector7_rotation(r0, 0 if pn & 1 else 1)
 
 
 def sector7_pages(data):
@@ -57,7 +55,7 @@ def page_multiplier(pg, r7, crow, head):
         t = (N7 - r7) % 512
         s7 = lrot[:t] + lrot[N7:512] + lrot[t + 16:N7]
         chained = sum(int.from_bytes(s7[a - 0xE00:a - 0xE00 + 2], "little") == b - a for a, b in pairs)
-        score = (chained, len(pairs) > 0, plain.count(0))
+        score = (chained, len(pairs) > 0, _plausibility(s7))
         if best is None or score > best[0]:
             best = (score, d)
     return best[1] if best[0][1] else None

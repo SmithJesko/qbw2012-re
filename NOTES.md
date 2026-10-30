@@ -119,10 +119,33 @@ OpenQBW#22 sections 2.3 and 4 hold on SA11, with one refinement.
 - Domains 9 and 10 hold text (memos, `abmc_notepad.data_fld` customer notes); 12 and 28 hold binary (`ABMC_TSAFE.ADMIN_KEY`, `abmc_opaque_storage.blob`, ISYSCOLSTAT histograms). Some SA system long values look compressed, as #22 also saw.
 - Pages of kind `0x11..0x14` also hold ordinary rows. A row there is a chunk exactly when a descriptor points at it; the others are table rows. Counting them fixes row counts that were short, e.g. `es_paycheck_header` 67 + 12 = 79, `abmc_vendor_user` 50 + 10 = 60, both matching SYSTABLE. Catalog row-count matches: 90 / 101 tables on Rock Castle, 74 / 83 on Larry's.
 
+### F15. Rotation flip (+256) is exact on SA11
+OpenSQLAnywhere#16 section 1.4 describes the true rotation sometimes being the prediction + 256 "when the predicted rotation is small", with probabilities. On SA11 it is deterministic. Over both samples, every sector where row chaining decides between the two (pred and pred + 256) flips when pred <= 41 and keeps when pred >= 43 (rotations are odd), with no exceptions (thousands of sectors; e.g. 242 flips at 41, 261 keeps at 43). So:
+
+    rot_s = pred_s + 256 if pred_s < 42 else pred_s
+
+Because pred drops by 2 per sector pair, the flip starts at some sector and persists to the end of the page, which is the pattern #16 reports. A page whose anchor `r0` is already >= 256 (e.g. 297) is the same rule applied to sector 0. Sector 7 follows it too: `r7 = rot6` (odd pages) or `rot6 - 2` (even pages), then +256 if below 42 (22 pages on Rock Castle had `r7 = 41`; with 297 instead, 20 of 21 rows decode on one of them instead of 17).
+
+Before this rule, pages 2509..2514 on Rock Castle lost rows along a diagonal (one more broken sector per page), which looked like a bad step slot but wasn't: neither step nor base changes helped. With it, Rock Castle exports 65747 rows (57879 before) and Larry's 43979 (40904), and no long value is left incomplete.
+
+The sector-7 multiplier `d` is now chosen by row chaining and then by plausibility (0x00 and `'0'` +2, printable +1, >= 0x80 -1, from #16 follow-up 1) instead of zero count, which resolves `d + 64k` aliases that hid single rows.
+
+### F16. The export reproduces every stored account balance
+Each account row (`abmc_account_internal.ending_balance_amt`) stores a running balance. Summing the exported posting lines per account reproduces it to the cent for **144 / 144 accounts on Rock Castle and 107 / 107 on Larry's**; the stored balances also sum to 0.00 on both. What the ledger needs (`scripts/check11.py`):
+- posting lines: `*_lineitem` rows with `account_id` set, `amount_amt` as the amount; debits are negative;
+- leave out estimates, sales orders, purchase orders and the audit trail (history copies);
+- leave out memorized transactions (`is_memorized_transaction_bool`, recurring templates) and `is_no_post_bool` lines. Larry's memorized bills (insurance, utilities, loan interest) otherwise double several expense accounts;
+- cost of goods sold posts through inventory records, `*_inventory_lineitem` (paired rows on the inventory asset and COGS accounts), not through the lines' `cogs_amt`. On Rock Castle invoice + bill inventory records (19372.53 + 4368.51) give exactly the 23741.04 COGS the balances need.
+
+Every transaction's posting lines also sum to zero on both files, across 14 transaction types. The last mismatches before F15 were all rows in sector 7 that hadn't decoded.
+
+### F17. Forwarded rows
+A 9-byte row with flags `0x04` is a forwarding stub: `u16 len = 9, u8 flags, u32 page, u16 slot`, e.g. `09 00 04 1c 17 00 00 0c 00` points at page 5916, slot 12. The moved row sits on a kind `0x11..0x14` page of the same table and decodes normally there (F14 already exports it), so the stub is skipped. On Rock Castle these were 83 `es_paycheck_lineitem`, 12 `es_paycheck_header` and 10 `abmc_vendor_user` rows that had been counted as failures.
+
 ## Open questions / next steps
 1. Closed form (or table + key derivation) for `T[k]`, and how `K` relates to the superblock (candidates: `file_id_lo` @0x08, 0x20..0x2C, 0x2BC..). That would remove the brute-force pass.
 2. Fix weak slots: per-slot confidence, and check the 155 low-zero pages.
-3. Remaining row-count gaps: `abmc_time_activity` (39 of 133), audit tables (about 2% short), stale row versions on kinds 1/2.
+3. Remaining row-count gaps are outside the business data: SA system tables (`ISYSVIEW`, `ISYSSOURCE`, `ISYSDEPENDENCY`, `ISYSCOLSTAT`), internal `I_*` tables, and 2 of 23748 audit rows on Rock Castle. Some SA system long values look compressed and aren't decoded.
 4. Posted F5 upstream as OpenQBW issue; post the F11 epoch correction there.
 5. Test `scripts/qbw2012.py` on a third 2012 file: the bundled sector-7 table was learned from the same two samples it's checked against.
 6. Port into OpenSQLAnywhere: version detection from the page-0 fingerprint, `ApModel` variant for SA11, page-type masking, CRC optional.

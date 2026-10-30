@@ -47,6 +47,8 @@ def export(data, c7, out):
         if p.owner < 3 or not cols or p.owner not in names:
             continue
         for i, row, trusted in p.rows():
+            if trusted and len(row) == 9 and row[2] & 4:
+                continue  # forwarding stub: u16 len, flags, u32 page, u16 slot (NOTES F17)
             rec = walk(row, cols) if trusted else None
             if rec is not None:
                 walked.append((p, i, rec))

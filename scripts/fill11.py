@@ -93,3 +93,4 @@ def _anchor(s0, pn, base, step):
         hdr = bytes(dec[(h + j) % SECTOR] for j in range(24))
         valid += hdr[16] == 4 and int.from_bytes(hdr[22:24], "little") <= 1500
     return valid == 1
+

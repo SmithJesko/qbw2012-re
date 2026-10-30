@@ -6,7 +6,8 @@ Work on a copy of the company file. Steps: find the fill key K and step
 table (fill11.py), repair steps that hide a page anchor, remove the fill,
 learn sector-7 rows (exact rows from this file, then the bundled table
 data/c7_sa11.json learned from the 2012 sample companies, then rows voted
-from this file), then export (export11.py).
+from this file), export (export11.py) and run the self-checks (check11.py).
+Exit status is 1 if a self-check fails.
 """
 import json
 import os
@@ -15,6 +16,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import check11  # noqa: E402
 import export11  # noqa: E402
 import fill11  # noqa: E402
 import sector7  # noqa: E402
@@ -46,8 +48,9 @@ def main(src, out):
     print(f"sector 7: {len(exact)} exact and {len(voted)} voted rows from this file, "
           f"{len(c7)} in use ({time.time() - t0:.0f}s)")
     export11.export(data, c7, out)
-    print(f"done in {time.time() - t0:.0f}s")
+    print(f"exported in {time.time() - t0:.0f}s; self-checks:")
+    return check11.main(out)
 
 
 if __name__ == "__main__":
-    main(*sys.argv[1:3])
+    sys.exit(main(*sys.argv[1:3]))

@@ -35,6 +35,15 @@ def find_r0(sec0, pn):
 N7 = 496
 
 
+_PLAUSIBLE = bytes(2 if x in (0, 0x30) else 1 if 32 <= x < 127 or x in (9, 10, 13) else 0
+                   for x in range(128)) + bytes(128)
+
+
+def _plausibility(b):
+    """Score text and zero bytes up, high bytes down (#16 follow-up 1)."""
+    return sum(_PLAUSIBLE[x] for x in b) - sum(x >= 0x80 for x in b)
+
+
 def _place7(plain, page, r7):
     """Undo the sector-7 rotation over the 512-byte unit that includes the
     plaintext trailer, moving the 16 displaced bytes back (#16 section 4.2)."""
@@ -49,8 +58,10 @@ def sector7(page, r7, crow, head):
 
     Removes d * C[r7]. The odd multiplier d drifts across the file, so every
     odd value is tried; the winner chains the most rows that start in
-    sector 7 (row length == gap to the next start), then has the most zero
-    bytes. head is the logical page up to 0xE00 (header and slots).
+    sector 7 (row length == gap to the next start), then scores best on
+    plausibility (#16 follow-up: 0x00 and '0' +2, printable +1, >= 0x80 -1),
+    which separates the d + 64k aliases that chaining can't. head is the
+    logical page up to 0xE00 (header and slots).
     """
     if (N7 - r7) % SECTOR > N7 - 16:
         return None
@@ -64,13 +75,34 @@ def sector7(page, r7, crow, head):
         plain = bytes((x - d * c) & 255 for x, c in zip(res, crow))
         s7 = _place7(plain, page, r7)
         chained = sum(int.from_bytes(s7[a:a + 2], "little") == b - a - 0xE00 for a, b in pairs)
-        score = (chained, plain.count(0))
+        score = (chained, _plausibility(s7))
         if best is None or score > best[0]:
             best = (score, s7)
     return best[1]
 
 
+FLIP_BELOW = 42
+
+
+def sector_rotation(r0, s, q):
+    """Rotation of sector s. The pair-wise prediction drops by 2 per pair;
+    below 42 the true rotation is the prediction + 256 (OpenSQLAnywhere#16
+    section 1.4). On SA11 the cut is exact: every decisive sector with a
+    prediction <= 41 is flipped, none >= 43 is (NOTES F15)."""
+    pred = (r0 - 2 * ((s + q) // 2)) % SECTOR
+    return pred + 256 if pred < FLIP_BELOW else pred
+
+
+def sector7_rotation(r0, q):
+    """r7 = rot6 on odd pages, rot6 - 2 on even pages (#16 section 4.1),
+    with the same +256 flip below 42 as the other sectors."""
+    rot6 = sector_rotation(r0, 6, q)
+    r7 = rot6 if q == 0 else (rot6 - 2) % SECTOR
+    return r7 + 256 if r7 < FLIP_BELOW else r7
+
+
 def logical_page(page, pn, q=None, c7=None):
+    """Un-rotate a decoded row page. Returns (logical page, sector 7 ok)."""
     r0 = find_r0(page[:SECTOR], pn)
     if r0 is None:
         return None
@@ -79,10 +111,9 @@ def logical_page(page, pn, q=None, c7=None):
     out = bytearray()
     for s in range(7):
         sec = page[s * SECTOR:(s + 1) * SECTOR]
-        rot = (r0 - 2 * ((s + q) // 2)) % SECTOR
+        rot = sector_rotation(r0, s, q)
         out += sec[rot:] + sec[:rot]
-    rot6 = (r0 - 2 * ((6 + q) // 2)) % SECTOR
-    r7 = rot6 if q == 0 else (rot6 - 2) % SECTOR
+    r7 = sector7_rotation(r0, q)
     s7 = sector7(page, r7, c7[r7], out) if c7 and r7 in c7 else None
     out += s7 if s7 is not None else page[7 * SECTOR:0xFF0]
     out += page[0xFF0:]

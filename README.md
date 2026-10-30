@@ -20,7 +20,17 @@ A `.qbw` file is a database (Sybase/SAP SQL Anywhere) cut into 4 KB pages, and e
 
 After that, the pages are ordinary SQL Anywhere row pages: a catalog of tables and columns, and rows that decode into dates, amounts and text.
 
-Applying this to the two QuickBooks 2012 sample companies recovers the full database. Invoices, bills, checks, deposits and journal entries export to SQLite, and their posting lines balance (all transactions on one sample, all but one invoice on the other), which checks the decoding without needing QuickBooks.
+Applying this to the two QuickBooks 2012 sample companies recovers the full database, and the result checks out against numbers QuickBooks stores in the file itself:
+
+| Check | Rock Castle | Larry's Landscaping |
+|---|---|---|
+| Rows exported (tables) | 65,747 (144) | 43,979 (134) |
+| Rows that don't decode | 874 (1.3%), 4 in QuickBooks tables | 869 (1.9%), 0 in QuickBooks tables |
+| Stored account balances reproduced from the exported transactions, to the cent | **144 / 144** | **107 / 107** |
+| Transactions whose posting lines sum to zero | all, 14 types | all, 13 types |
+| Tables whose exported row count equals the file's own catalog count | 96 / 102 | 90 / 95 |
+
+Every QuickBooks business table matches its catalog row count; the remaining differences are SQL Anywhere's own system tables. None of this needs QuickBooks to check, so the work stays clean-room.
 
 The full technical findings, with evidence, are in [NOTES.md](NOTES.md).
 
@@ -29,21 +39,22 @@ The full technical findings, with evidence, are in [NOTES.md](NOTES.md).
 | Step | Status |
 |---|---|
 | Identify engine version and page layout | done |
-| Remove the fill (`start` formula, `step` recovery) | done; `step` formula still open |
+| Remove the fill (`start` formula, `step` recovery) | done; a closed form for `step` is still open |
 | Undo chunk rotation, including sector 7 | done |
 | Read the catalog (tables, columns) | done |
-| Decode rows into values | done; 89.5% of all rows on Rock Castle, 100% of invoice headers, customers and accounts |
-| Export to SQLite, accounting self-checks | done |
+| Decode rows, including long values stored outside the row | done |
+| Export to SQLite | done |
+| Self-checks against stored balances | done; every account matches on both samples |
 | One-step tool from the raw `.qbw` | done (`scripts/qbw2012.py`) |
 | Test on more 2012 files | needs files |
 | Port into OpenSQLAnywhere / OpenQBW | planned |
 
 ## Limitations
 
-- Tested on the two QuickBooks 2012 sample companies only. The bundled sector-7 table was learned from the same two files.
-- A few long values (under 1%, mostly SQL Anywhere's own statistics) have an incomplete chunk chain and export as `<N bytes out of row>`.
-- Older row versions that the database keeps around are not filtered out yet.
-- Rows that don't decode exactly are left out rather than guessed; `_export_report` lists how many per table.
+- Tested on the two QuickBooks 2012 sample companies only. The bundled sector-7 table was learned from the same two files, so a new file is the real test; the self-checks will show whether it worked.
+- About 1 to 2% of rows don't decode, all but 4 of them (on Rock Castle) in SQL Anywhere's own system tables. They are left out rather than guessed; `_export_report` lists them per table.
+- Some SQL Anywhere system values (view and procedure sources) are stored compressed and aren't decoded.
+- Older row versions that the database keeps around are not filtered out.
 
 ## Layout
 
@@ -60,6 +71,7 @@ The full technical findings, with evidence, are in [NOTES.md](NOTES.md).
   - `export11.py`: write every decodable table to SQLite.
   - `fill11.py`: fast fill recovery (key, steps, step repair).
   - `qbw2012.py`: the one-step tool.
+  - `check11.py`: self-checks on an export.
 - `data/`: format tables the tool needs.
 - `out/`: generated tables (git-ignored).
 
@@ -77,7 +89,18 @@ Work on a **copy** of the company file. Python 3, standard library only:
 python3 -I scripts/qbw2012.py copy.qbw books.sqlite
 ```
 
-This takes one to two minutes and writes one SQLite table per QuickBooks table, plus `_export_report` (exported rows against the row count the file's own catalog records, and any incomplete long values). Long text such as memos and notes is reassembled in full; binary long values are stored as BLOBs. Money is exact decimal text and dates are ISO 8601. To dump every table to CSV:
+This takes one to two minutes and writes one SQLite table per QuickBooks table, plus `_export_report` (exported rows against the row count the file's own catalog records). Long text such as memos and notes is reassembled in full; binary long values are stored as BLOBs. It then runs the self-checks and prints, for example:
+
+```
+catalog: 96 / 102 tables match the SYSTABLE row count
+transactions (posting lines sum to zero):
+  abmc_bill_lineitem                       197 / 197
+  abmc_invoice_lineitem                    113 / 113
+  ...
+accounts: 144 / 144 stored ending balances match the posting lines (stored balances sum to 0.00)
+```
+
+Any account that doesn't match is listed with its stored and computed balance, and the exit status is 1. `python3 -I scripts/check11.py books.sqlite` reruns the checks on an existing export. Money is exact decimal text and dates are ISO 8601. To dump every table to CSV:
 
 ```bash
 mkdir -p csv
