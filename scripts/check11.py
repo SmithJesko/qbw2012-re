@@ -2,78 +2,38 @@
 
 Usage: check11.py BOOKS.sqlite
 
-All checks use only numbers stored in the file itself:
+All checks use only numbers stored in the file itself (ledger rules in
+ledger11.py):
   1. catalog: exported rows per table against the SYSTABLE row count
-  2. transactions: posting lines (account_id set, not memorized, not
-     no-post) sum to zero per transaction
+  2. transactions: posting lines sum to zero per transaction
   3. accounts: each account's stored ending_balance_amt against the sum of
-     its posting lines across all posting tables plus the inventory records
-     (*_inventory_lineitem), which carry cost of goods sold. Debits are
-     stored as negative amounts.
-  4. duplicates: a table's own id that occurs more than once, e.g. older
+     its ledger entries (posting lines plus inventory records)
+  4. customers: each customer's stored end_balance_amt against its entries
+     on Accounts Receivable accounts
+  5. vendors: each vendor's stored end_balance_amt against its entries on
+     Accounts Payable accounts plus, for a sales tax agency, the sales tax
+     owed to it (entries whose tax item names that agency)
+  6. open items: every invoice and bill has no open amount exactly when its
+     stored is_paid_bool is set, and open amounts summed per customer equal
+     the stored customer balance
+  7. duplicates: a table's own id that occurs more than once, e.g. older
      row versions the export keeps. Reported only. The index catalog isn't
      decoded yet, so the id column is picked by name (main_id_column).
-Estimates, sales orders and purchase orders don't post, and the audit trail
-holds history copies, so they are left out.
 Money is compared as integer cents from the export's exact decimal text. An
 amount with sub-cent digits is rounded half-even and reported.
-Exit status is 1 if any account or transaction check fails.
+Exit status is 1 if any of checks 2 to 6 fails.
 """
 import collections
-import decimal
+import os
 import sqlite3
 import sys
 
-NON_POSTING = ("estimate", "sales_order", "purchase_order", "audit")
-NOT_CENTS = []
-
-
-def cents(text):
-    """Integer cents from an exact decimal string (None counts as 0)."""
-    if text is None:
-        return 0
-    d = decimal.Decimal(str(text)) * 100
-    c = d.to_integral_value(rounding=decimal.ROUND_HALF_EVEN)
-    if c != d:
-        NOT_CENTS.append(text)
-    return int(c)
-
-
-def fmt(c):
-    sign = "-" if c < 0 else ""
-    return f"{sign}{abs(c) // 100}.{abs(c) % 100:02d}"
-
-
-def has_table(db, name):
-    return db.execute("SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?",
-                      (name,)).fetchone()[0] > 0
-
-
-def columns(db, table):
-    return [r[1] for r in db.execute(f'PRAGMA table_info("{table}")')]
-
-
-def posting_tables(db):
-    out = []
-    for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%lineitem'"):
-        if name.endswith("inventory_lineitem"):
-            continue
-        if {"account_id", "amount_amt", "transaction_id"} <= set(columns(db, name)) \
-                and not any(n in name for n in NON_POSTING):
-            out.append(name)
-    return sorted(out)
-
-
-def skip_flags(db, table):
-    """Leave out memorized (template) and no-post lines where the table has
-    those flags."""
-    cols = set(columns(db, table))
-    return "".join(f" AND coalesce({c}, 0) = 0" for c in ("is_memorized_transaction_bool", "is_no_post_bool")
-                   if c in cols)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ledger11 as L  # noqa: E402
 
 
 def check_catalog(db):
-    if not has_table(db, "_export_report"):
+    if not L.has_table(db, "_export_report"):
         print("catalog: skipped, no _export_report table")
         return
     total, matched = db.execute(
@@ -81,13 +41,13 @@ def check_catalog(db):
     print(f"catalog: {matched or 0} / {total} tables match the SYSTABLE row count")
 
 
-def check_transactions(ledger):
-    """ledger: list of (table, transaction_id, account_id, cents)."""
+def check_transactions(entries):
     failed = False
     print("transactions (posting lines sum to zero):")
     sums = collections.defaultdict(lambda: collections.defaultdict(int))
-    for table, txn, _, amt in ledger:
-        sums[table][txn] += amt
+    for e in entries:
+        if not e.table.endswith("inventory_lineitem"):
+            sums[e.table][e.transaction_id] += e.amount
     for table in sorted(sums):
         n = len(sums[table])
         ok = sum(1 for s in sums[table].values() if s == 0)
@@ -96,24 +56,85 @@ def check_transactions(ledger):
     return failed
 
 
-def check_accounts(db, ledger):
-    if not has_table(db, "abmc_account_internal"):
+def compare(label, stored, computed, names):
+    """Print stored against computed balances; return True if any differ."""
+    bad = [(i, s, computed.get(i, 0)) for i, s in stored.items() if s != computed.get(i, 0)]
+    print(f"{label}: {len(stored) - len(bad)} / {len(stored)} stored balances match "
+          f"(stored balances sum to {L.fmt(sum(stored.values()))})")
+    for i, s, c in sorted(bad, key=lambda r: -abs(r[1] - r[2])):
+        print(f"  {i:5} {str(names.get(i))[:32]:32} stored {L.fmt(s):>14} computed {L.fmt(c):>14} "
+              f"diff {L.fmt(s - c):>12}")
+    return bool(bad)
+
+
+def stored_balances(db, table, key, column):
+    return {i: L.cents(b) for i, b in db.execute(f'SELECT {key}, {column} FROM "{table}"')}
+
+
+def check_accounts(db, entries, names):
+    if not L.has_table(db, "abmc_account_internal"):
         print("accounts: skipped, no abmc_account_internal table in this export")
         return False
     computed = collections.defaultdict(int)
-    for _, _, acct, amt in ledger:
-        computed[acct] += amt
-    names = dict(db.execute("SELECT account_id, name FROM abmc_account_user")) \
-        if has_table(db, "abmc_account_user") else {}
-    rows = [(acct, cents(bal)) for acct, bal in db.execute(
-        "SELECT account_id, ending_balance_amt FROM abmc_account_internal")]
-    bad = [(acct, stored, computed[acct]) for acct, stored in rows if stored != computed[acct]]
-    print(f"accounts: {len(rows) - len(bad)} / {len(rows)} stored ending balances match the posting lines "
-          f"(stored balances sum to {fmt(sum(s for _, s in rows))})")
-    for acct, stored, comp in sorted(bad, key=lambda r: -abs(r[1] - r[2])):
-        print(f"  account {acct:4} {str(names.get(acct))[:30]:30} stored {fmt(stored):>14} "
-              f"computed {fmt(comp):>14} diff {fmt(stored - comp):>12}")
-    return bool(bad)
+    for e in entries:
+        computed[e.account_id] += e.amount
+    return compare("accounts", stored_balances(db, "abmc_account_internal", "account_id", "ending_balance_amt"),
+                   computed, names.account)
+
+
+def check_customers(db, entries, names):
+    if not L.has_table(db, "abmc_customer_internal"):
+        print("customers: skipped, no abmc_customer_internal table in this export")
+        return False
+    computed = collections.defaultdict(int)
+    for e in entries:
+        if names.account_type.get(e.account_id) == L.AR:
+            computed[e.customer_id] += e.amount
+    return compare("customers", stored_balances(db, "abmc_customer_internal", "customer_id", "end_balance_amt"),
+                   computed, names.customer)
+
+
+def check_vendors(db, entries, names):
+    if not L.has_table(db, "abmc_vendor_internal"):
+        print("vendors: skipped, no abmc_vendor_internal table in this export")
+        return False
+    agency = L.tax_agencies(db)
+    computed = collections.defaultdict(int)
+    for e in entries:
+        ty = names.account_type.get(e.account_id)
+        if ty == L.AP:
+            computed[e.vendor_id] += e.amount
+        elif ty == 7 and e.item_id in agency:
+            computed[agency[e.item_id]] += e.amount
+    return compare("vendors", stored_balances(db, "abmc_vendor_internal", "vendor_id", "end_balance_amt"),
+                   computed, names.vendor)
+
+
+def check_open_items(db, entries, names):
+    _, items = L.open_items(db, entries, names)
+    failed = False
+    for side, header in (("AR", "abmc_invoice_header"), ("AP", "abmc_bill_header")):
+        if not L.has_table(db, header):
+            continue
+        open_by_txn = {i.transaction_id: i.open for i in items if i.side == side}
+        paid = {t: p for t, p in db.execute(f'SELECT transaction_id, is_paid_bool FROM "{header}"')
+                if t in open_by_txn}
+        bad = [t for t, p in paid.items() if (open_by_txn[t] == 0) != bool(p)]
+        failed |= bool(bad)
+        kind = "invoices" if side == "AR" else "bills"
+        print(f"open items: {len(paid) - len(bad)} / {len(paid)} {kind} are fully applied exactly when "
+              f"marked paid{'' if not bad else '  <-- ' + ', '.join(map(str, bad[:8]))}")
+    if L.has_table(db, "abmc_customer_internal"):
+        per = collections.defaultdict(int)
+        for i in items:
+            if i.side == "AR":
+                per[i.party_id] += i.open
+        stored = stored_balances(db, "abmc_customer_internal", "customer_id", "end_balance_amt")
+        bad = [c for c, s in stored.items() if s != per.get(c, 0)]
+        failed |= bool(bad)
+        print(f"open items: {len(stored) - len(bad)} / {len(stored)} customers' open AR items sum to "
+              f"their stored balance")
+    return failed
 
 
 def main_id_column(table, cols):
@@ -143,7 +164,7 @@ def check_duplicates(db):
     found = []
     for (table,) in db.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name <> '_export_report' "
                                "ORDER BY name").fetchall():
-        col = main_id_column(table, columns(db, table))
+        col = main_id_column(table, L.columns(db, table))
         if col is None:
             continue
         dup = db.execute(f'SELECT "{col}", count(*) FROM "{table}" WHERE "{col}" IS NOT NULL '
@@ -161,30 +182,19 @@ def check_duplicates(db):
 
 def main(path):
     db = sqlite3.connect(path)
-    NOT_CENTS.clear()
+    L.NOT_CENTS.clear()
     check_catalog(db)
-
-    ledger = []
-    for t in posting_tables(db):
-        for txn, acct, amt in db.execute(
-                f'SELECT transaction_id, account_id, amount_amt FROM "{t}" '
-                f"WHERE account_id IS NOT NULL{skip_flags(db, t)}"):
-            ledger.append((t, txn, acct, cents(amt)))
-    failed = check_transactions(ledger)
-
-    # Cost of goods sold posts through inventory records (*_inventory_lineitem:
-    # paired rows on the inventory asset and COGS accounts), not through the
-    # transaction lines themselves.
-    for (t,) in db.execute("SELECT name FROM sqlite_master WHERE type = 'table' "
-                           "AND name LIKE '%inventory_lineitem'").fetchall():
-        for acct, amt in db.execute(f'SELECT account_id, amount_amt FROM "{t}" WHERE account_id IS NOT NULL'):
-            ledger.append((t, None, acct, cents(amt)))
-    failed |= check_accounts(db, ledger)
-
+    entries = L.entries(db)
+    names = L.Names(db)
+    failed = check_transactions(entries)
+    failed |= check_accounts(db, entries, names)
+    failed |= check_customers(db, entries, names)
+    failed |= check_vendors(db, entries, names)
+    failed |= check_open_items(db, entries, names)
     check_duplicates(db)
-    if NOT_CENTS:
-        print(f"note: {len(NOT_CENTS)} amounts had sub-cent digits and were rounded half-even, "
-              f"e.g. {NOT_CENTS[:3]}")
+    if L.NOT_CENTS:
+        print(f"note: {len(L.NOT_CENTS)} amounts had sub-cent digits and were rounded half-even, "
+              f"e.g. {L.NOT_CENTS[:3]}")
     return 1 if failed else 0
 
 

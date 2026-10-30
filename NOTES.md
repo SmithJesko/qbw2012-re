@@ -159,10 +159,43 @@ Current results with `scripts/qbw2012.py`:
 | Catalog row-count matches | 96 / 105 | 90 / 99 |
 | Repeated own ids | none | none |
 
+### F19. Customer, vendor and open-item balances; account classes
+**Account classes.** `abmc_account_user.type` (not `account_type`, which is 0 on every account) classifies accounts. The meaning of each code is inferred from the names of the accounts that carry it, on both samples:
+
+| type | accounts | type | accounts |
+|---|---|---|---|
+| 0 | Checking, Savings, Petty Cash | 8 | loans, mortgage, notes payable |
+| 1 | Accounts Receivable | 9 | Opening Bal Equity, Retained Earnings, Capital Stock |
+| 2 | Inventory Asset, Undeposited Funds, Pre-paid Insurance | 10 | income accounts |
+| 3 | vehicles, buildings, land, accumulated depreciation | 11 | Cost of Goods Sold, job expenses |
+| 4 | Security Deposits | 12 | expense accounts |
+| 5 | Accounts Payable | 13 | Interest Income, Other Income |
+| 6 | credit cards | 14 | Other Expenses |
+| 7 | payroll liabilities, Sales Tax Payable | 15 | Estimates, Sales Orders, Purchase Orders |
+
+**Customers.** Ledger entries on type-1 accounts, summed per `customer_id`, reproduce `abmc_customer_internal.end_balance_amt` for 147 / 147 customers (Rock Castle) and 65 / 65 (Larry's).
+
+**Vendors.** A vendor's `end_balance_amt` is its type-5 (Accounts Payable) entries plus, for a sales tax agency, the sales tax owed to it: entries on type-7 accounts whose tax item's `abmc_item_user.tax_agency_id` names the vendor. That gives 60 / 60 and 37 / 37. Using the line's own `vendor_id` for the sales tax part gives only 53 / 60 and 34 / 37.
+
+**Open items.** `abmc_transaction_link` records applications (payments, credits) between lines, with `amount_amt`. Three filters are needed:
+- both `target_1_id` and `target_2_id` must be lines of real transactions. On Rock Castle 1848 of the 2823 type-4 links point at audit-trail copies of payment lines, which doubles every application otherwise;
+- drop `is_secondary_bool` links (a bill paid by check also links the check to the bill's expense line);
+- keep one link per `(link_type, target_1_id, target_2_id)`: identical repeats under different `link_id`s are older row versions.
+
+Then `open = sign(amount) * (|amount| - |applied|)` per transaction, where `amount` is its AR (or AP) total and `applied` the sum of its links of the application types. Applications reduce what is open in either direction, which handles bill credits and credit memos without per-type signs. The application types, found by testing each link type against the file's own `is_paid_bool` flags: AR 4 and 5 (2 also joins a refund check to the credit memo it refunds), AP 6, 8 and 16. Results on both samples:
+- invoices: 113 / 113 and 150 / 150 have no open amount exactly when `is_paid_bool` is set (Larry's 11 memorized invoices are templates and excluded);
+- bills: 197 / 197 and 106 / 106;
+- every customer's open AR items sum to its stored balance (147 / 147, 65 / 65); AR and AP open totals equal the AR and AP account balances.
+
+**Not found:** the fiscal year start month (no decodable column names it; company settings sit in compressed values), so it is a report option. Some invoice due dates are a year past their date plus terms (invoice 1064: dated 2016-10-05, due 2017-10-20); they are reported as stored.
+
+**Reports** (`scripts/reports11.py`, rules in `scripts/ledger11.py`): trial balance and balance sheet as of a date, P&L by month, quarter or fiscal year, general ledger detail with account, customer, vendor and employee names, AR/AP open items and aging. Earlier fiscal years' income and expense close into Retained Earnings. Each report checks itself: trial balance debits equal credits; assets equal liabilities plus equity; P&L net income equals both the period's income and expense entries and the balance sheet's Net Income line; general ledger closing balances equal the trial balance; AR and AP open items total to the AR and AP balances. All pass on both samples, for monthly, quarterly and July-start fiscal years.
+
 ## Open questions / next steps
 1. Closed form (or table + key derivation) for `T[k]`, and how `K` relates to the superblock (candidates: `file_id_lo` @0x08, 0x20..0x2C, 0x2BC..). That would remove the brute-force pass.
 2. Fix weak slots: per-slot confidence, and check the 155 low-zero pages.
 3. `abmc_estimate_header` on Larry's (F18). Other row-count gaps are outside the business data: SA system tables (`ISYSVIEW`, `ISYSSOURCE`, `ISYSDEPENDENCY`, `ISYSCOLSTAT`), internal `I_*` tables, and 2 of 23748 audit rows on Rock Castle. Some SA system long values look compressed and aren't decoded. Decoding ISYSIDX / ISYSIDXCOL would give real primary keys for the duplicate check.
+   Link types other than the application types (9, 11, 12, 15, 17 to 21) aren't characterised.
 4. Posted F5 upstream as OpenQBW issue; post the F11 epoch correction there.
 5. Test `scripts/qbw2012.py` on a third 2012 file: the bundled sector-7 table was learned from the same two samples it's checked against.
 6. Port into OpenSQLAnywhere: version detection from the page-0 fingerprint, `ApModel` variant for SA11, page-type masking, CRC optional.
