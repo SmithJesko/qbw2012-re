@@ -111,10 +111,18 @@ The one Rock Castle invoice that doesn't balance is missing its single undecoded
 ### F13. Fast step recovery
 For a byte at odd index `i`, the step that makes it zero is unique: `(stored - base) * inverse(i) mod 256`. Voting with that per slot (`scripts/fill11.py`) takes 1.6 s on Rock Castle instead of about 3.5 minutes, and agrees with the slow table on 3865 / 3870 slots. Slots that still hide a row page's anchor are repaired by searching the step that gives exactly one valid header (6 slots on Rock Castle, 0 on Larry's).
 
+### F14. Out-of-row long values
+OpenQBW#22 sections 2.3 and 4 hold on SA11, with one refinement.
+- A long column value with first byte `b & 0x80` (not `0xFF`) is `k = b & 0x7F` prefix bytes plus a 13-byte descriptor `[00][u32 total][u32 page][u16 ?][u16 slot]`. On Rock Castle 7866 of 7868 descriptors point at a page of kind `0x11..0x14` owned by the same table.
+- Chunk rows: `u16 len, u8 flags, u32 next_page if flags & 4, data`. Following the chain gives exactly `total` bytes for 6504 values and more than `total` for 1295 (trim); 69 chains are short or broken (mostly ISYSCOLSTAT).
+- **The in-row prefix is a copy of the value's first `k` bytes; the chain holds the whole value.** So the value is `chain[:total]`, not `prefix + chain`.
+- Domains 9 and 10 hold text (memos, `abmc_notepad.data_fld` customer notes); 12 and 28 hold binary (`ABMC_TSAFE.ADMIN_KEY`, `abmc_opaque_storage.blob`, ISYSCOLSTAT histograms). Some SA system long values look compressed, as #22 also saw.
+- Pages of kind `0x11..0x14` also hold ordinary rows. A row there is a chunk exactly when a descriptor points at it; the others are table rows. Counting them fixes row counts that were short, e.g. `es_paycheck_header` 67 + 12 = 79, `abmc_vendor_user` 50 + 10 = 60, both matching SYSTABLE. Catalog row-count matches: 90 / 101 tables on Rock Castle, 74 / 83 on Larry's.
+
 ## Open questions / next steps
 1. Closed form (or table + key derivation) for `T[k]`, and how `K` relates to the superblock (candidates: `file_id_lo` @0x08, 0x20..0x2C, 0x2BC..). That would remove the brute-force pass.
 2. Fix weak slots: per-slot confidence, and check the 155 low-zero pages.
-3. Header-validated step search for slots the statistical recovery gets wrong (F10); out-of-row long values (blob chunk pages, kinds 0x11..0x14); stale row versions on kinds 1/2.
+3. Remaining row-count gaps: `abmc_time_activity` (39 of 133), audit tables (about 2% short), stale row versions on kinds 1/2.
 4. Posted F5 upstream as OpenQBW issue; post the F11 epoch correction there.
 5. Test `scripts/qbw2012.py` on a third 2012 file: the bundled sector-7 table was learned from the same two samples it's checked against.
 6. Port into OpenSQLAnywhere: version detection from the page-0 fingerprint, `ApModel` variant for SA11, page-type masking, CRC optional.

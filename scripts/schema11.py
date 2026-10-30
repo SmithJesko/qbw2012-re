@@ -21,8 +21,17 @@ from page11 import iter_pages
 DATE_EPOCH = datetime.datetime(1600, 2, 29)  # issue #22; see NOTES F9
 FIXED = {1: 2, 22: 2, 2: 4, 19: 4, 21: 4, 20: 8, 23: 8, 4: 4, 5: 8, 24: 1, 6: 4, 13: 8, 14: 8}
 TEXT = {7, 8, 9, 10, 11, 12, 28}
+BINARY = {11, 12, 28}  # long values of these domains hold binary data (NOTES F14)
 NUMERIC = {3, 27}
 DOMAINS = set(FIXED) | TEXT | NUMERIC
+
+
+class LongRef(collections.namedtuple("LongRef", "prefix total page unknown slot")):
+    """Out-of-row long value: in-row prefix plus a 13-byte descriptor
+    [00][u32 total_len][u32 first chunk page][u16 ?][u16 slot] (#22 2.3)."""
+
+    def __str__(self):
+        return f"{self.prefix.decode('latin-1')}...<{self.total} bytes out of row>"
 
 
 def strip_extra(row):
@@ -123,9 +132,11 @@ def read_text(r, o, width):
         return r[o + 3:o + 3 + n].decode("latin-1"), o + 3 + n
     if width > 255 and b & 0x80:
         k = b & 0x7F
-        prefix = r[o + 1:o + 1 + k].decode("latin-1")
-        total = int.from_bytes(r[o + 2 + k:o + 6 + k], "little")
-        return f"{prefix}...<{total} bytes out of row>", o + 1 + k + 13
+        d = r[o + 1 + k:o + 1 + k + 13]
+        if len(d) != 13:
+            raise ValueError("short descriptor")
+        ref = LongRef(r[o + 1:o + 1 + k], *struct.unpack("<xIIHH", d))
+        return ref, o + 1 + k + 13
     return r[o + 1:o + 1 + b].decode("latin-1"), o + 1 + b
 
 
@@ -188,4 +199,41 @@ def walk(row, cols):
             for c in cols[len(use):]:
                 out[c["name"]] = None
             return out
+    return None
+
+
+def resolve_long(pages, ref, domain):
+    """Full value for a LongRef: the chunk chain trimmed to ref.total (the
+    in-row prefix repeats the first bytes). Text domains decode as text,
+    binary ones stay bytes. Returns (value, complete)."""
+    data = chunk_bytes(pages, ref)
+    if data is None or len(data) < ref.total:
+        return str(ref), False
+    data = data[:ref.total]
+    return (data if domain in BINARY else data.decode("latin-1")), True
+
+
+def chunk_bytes(pages, ref, limit=10000):
+    """Concatenate the chunk chain a LongRef points at (#22 section 4).
+
+    Chunk row: u16 len, u8 flags, u32 next_page if flags & 4, data.
+    The first chunk is slot `ref.slot` of `ref.page`; continuation pages
+    hold a single chunk row. Returns None if the chain breaks.
+    """
+    out = bytearray()
+    page, slot = ref.page, ref.slot
+    for _ in range(limit):
+        p = pages.get(page)
+        if p is None or slot >= len(p.slots) or not p.slots[slot]:
+            return None
+        a = 28 + p.slots[slot]
+        n = int.from_bytes(p.buf[a:a + 2], "little")
+        flags = p.buf[a + 2]
+        body = p.buf[a + 3:a + n]
+        if flags & 4:
+            page, slot = int.from_bytes(body[:4], "little"), 0
+            out += body[4:]
+        else:
+            out += body
+            return bytes(out)
     return None

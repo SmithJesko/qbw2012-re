@@ -41,7 +41,7 @@ The full technical findings, with evidence, are in [NOTES.md](NOTES.md).
 ## Limitations
 
 - Tested on the two QuickBooks 2012 sample companies only. The bundled sector-7 table was learned from the same two files.
-- Long text stored outside the row (some memos and notes) exports as `<N bytes out of row>`, not the full text.
+- A few long values (under 1%, mostly SQL Anywhere's own statistics) have an incomplete chunk chain and export as `<N bytes out of row>`.
 - Older row versions that the database keeps around are not filtered out yet.
 - Rows that don't decode exactly are left out rather than guessed; `_export_report` lists how many per table.
 
@@ -77,7 +77,7 @@ Work on a **copy** of the company file. Python 3, standard library only:
 python3 -I scripts/qbw2012.py copy.qbw books.sqlite
 ```
 
-This takes one to two minutes and writes one SQLite table per QuickBooks table, plus `_export_report` (exported rows against the row count the file's own catalog records). Money is exact decimal text and dates are ISO 8601. To dump every table to CSV:
+This takes one to two minutes and writes one SQLite table per QuickBooks table, plus `_export_report` (exported rows against the row count the file's own catalog records, and any incomplete long values). Long text such as memos and notes is reassembled in full; binary long values are stored as BLOBs. Money is exact decimal text and dates are ISO 8601. To dump every table to CSV:
 
 ```bash
 mkdir -p csv
