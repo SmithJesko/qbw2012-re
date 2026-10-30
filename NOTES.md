@@ -45,7 +45,7 @@ OpenQBW's SPECIFICATION.md section 5 treats `b1 0d 19 0d` (8 bytes before `table
 | `1bb2e50c` | `abmc_invoice_header` | 2011-05-29 20:11 |
 | `b10d190d` | OpenQBW's SA17 "fixed tag" | 2017-10-22 04:33 |
 
-So the superblock `u32` at 0x2A is the database creation time, and the row value is a per-row change time. The SA17 value only looks constant because the upstream corpus shares one 2017 template. A tag matcher should accept any value there, not a fixed constant (`scripts/systable_tag.py`).
+So the superblock `u32` at 0x2A is the database creation time, and the row value is a per-row change time. The SA17 value only looks constant because the upstream corpus shares one 2017 template. OpenQBW's `systable.rs` already accepts any value there (it calls it a per-database salt), so this is a spec correction, not a parser bug (`scripts/systable_tag.py`).
 
 ### F6. SYSTABLE rows: same anchor as SA17, different trailer
 Tag shape matches SA17 apart from F5: `05 00 00 00 <tid u32> 00 00 00 00 <stamp u32> 00 00 00 00 <len u8> <name>`. Rock Castle: 716 tagged rows, 448 distinct names (older row versions repeat; keep the newest stamp). There are 115 `abmc_*` tables, 84 `v_*` views and 48 `ISYS*` system tables.
@@ -62,5 +62,5 @@ Offsets relative to the tag (`scripts/catalog11.py`):
 1. Closed form (or table + key derivation) for `T[k]`, and how `K` relates to the superblock (candidates: `file_id_lo` @0x08, 0x20..0x2C, 0x2BC..). That would remove the brute-force pass.
 2. Fix weak slots: per-slot confidence, and check the 155 low-zero pages.
 3. SYSTABLE: find the table root page, then confirm the -24/-12 count candidates by counting rows on the table's own pages. Bridge SYSCOLUMN owners to table_id (-30) to get column names per table.
-4. Report F5 upstream: it affects OpenQBW's tag matcher on any file not built from the 2017 template.
+4. Report F5 upstream as a spec correction (SPECIFICATION.md sections 3.1 and 5).
 5. Port into OpenSQLAnywhere: version detection from the page-0 fingerprint, `ApModel` variant for SA11, page-type masking, CRC optional.
