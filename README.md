@@ -31,7 +31,8 @@ The full technical findings, with evidence, are in [NOTES.md](NOTES.md).
 | Undo the scrambling (`start` formula) | done |
 | Undo the scrambling (`step`, statistical recovery) | working, ~98% of pages look clean |
 | Closed-form `step` formula | open |
-| Parse SQL Anywhere 11 tables and rows | next |
+| Read the table catalog (names, ids) | done |
+| Locate each table's pages, decode rows | next |
 | Port into OpenSQLAnywhere / OpenQBW | planned |
 
 ## Layout
@@ -42,6 +43,7 @@ The full technical findings, with evidence, are in [NOTES.md](NOTES.md).
   - `apfit.py`, `apdump.py`, `apmodel11.py`: fitting the scrambling pattern.
   - `apstep.py`: recover the per-file step table.
   - `decode11.py`: unscramble a whole file.
+  - `systable_tag.py`, `catalog11.py`: find and list table catalog rows.
 - `out/`: generated tables (git-ignored).
 
 ## Ground rules
@@ -59,3 +61,9 @@ python3 -I scripts/pagecheck.py copy.qbw
 python3 -I scripts/apstep.py copy.qbw other.qbw scripts/apmodel11.py out/steps.json   # ~3.5 min
 python3 -I scripts/decode11.py copy.qbw <K> out/steps.json out/copy.plain
 ```
+
+## License
+
+Apache-2.0, the same as OpenQBW, so findings and code can move upstream freely. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+QuickBooks(R) is a registered trademark of Intuit Inc. SQL Anywhere(R) is a registered trademark of SAP SE. This project is independent and not affiliated with either.

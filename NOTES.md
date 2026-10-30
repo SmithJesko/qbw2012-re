@@ -30,12 +30,37 @@ Work on copies only (the scripts were run against copies in the scratchpad).
 ### F4. Decoded content
 `scripts/decode11.py` (K + recovered step table) yields readable SA11 structures and business data:
 - Catalog index names `ISYSTABLE`, `ISYSDOMAIN`, `ISYSIDXCOL`, `ISYSDBSPACE`, etc.; columns `foreign_table_id`, `primary_column_id`, `allocation_bitmap`, `long_value_bitmap`.
-- `sample_product-based business.qbw` **is Rock Castle Construction** ("Rock Castle Construction, Inc.", customers like "Abercrombie, Kristy:Remodel Bathroom", report names like "FY2016-17 - Profit & Loss by Account").
+- `sample_product-based business.qbw` **is Rock Castle Construction** ("Rock Castle Construction, Inc.", customer:job names, report names like "FY2016-17 - Profit & Loss by Account").
 - `sample_service-based business.qbw` is **Larry's Landscaping & (Garden) Supply**; it decodes the same way with K=243 (step recovery agrees on 1200/1204 pure-learned slots; `out/steps_service.json`).
 - Decode quality proxy: ~2% of pages (155/7733) have <5% zero bytes, so they're either dense data or slots whose step was recovered wrong. Some strings show local corruption.
+
+### F5. The SYSTABLE "fixed record tag" is a timestamp
+OpenQBW's SPECIFICATION.md section 5 treats `b1 0d 19 0d` (8 bytes before `table_name`) as a fixed tag. In SA11 files the same 4 bytes vary per row, always end in `0x0c`, and are a `u32_LE` count of **minutes since 1600-01-01**:
+
+| Value | Where | Decodes to |
+|---|---|---|
+| `2c68d60c` | most Rock Castle catalog rows | 2009-07-03 00:44 |
+| `2d68d60c` | Rock Castle superblock 0x2A | 2009-07-03 00:45 |
+| `f32fd60c` | Larry's superblock 0x2A and most rows | 2009-06-23 00:51 |
+| `1bb2e50c` | `abmc_invoice_header` | 2011-05-29 20:11 |
+| `b10d190d` | OpenQBW's SA17 "fixed tag" | 2017-10-22 04:33 |
+
+So the superblock `u32` at 0x2A is the database creation time, and the row value is a per-row change time. The SA17 value only looks constant because the upstream corpus shares one 2017 template. A tag matcher should accept any value there, not a fixed constant (`scripts/systable_tag.py`).
+
+### F6. SYSTABLE rows: same anchor as SA17, different trailer
+Tag shape matches SA17 apart from F5: `05 00 00 00 <tid u32> 00 00 00 00 <stamp u32> 00 00 00 00 <len u8> <name>`. Rock Castle: 716 tagged rows, 448 distinct names (older row versions repeat; keep the newest stamp). There are 115 `abmc_*` tables, 84 `v_*` views and 48 `ISYS*` system tables.
+
+Offsets relative to the tag (`scripts/catalog11.py`):
+- **-30 `u32` table_id**: same position as SA17 (OpenQBW SPECIFICATION.md 5.1). Distinct and sequential across `abmc_*` (726, 727, 728, ...).
+- **-24 `u32`**: candidate row count. `abmc_invoice_header` 113, `abmc_invoice_lineitem` 1238, `abmc_customer_*` 147, `abmc_account_*` 144, empty tables 0. Unconfirmed.
+- **-12 `u32`**: candidate page count (invoice lines 86, about 14 rows per page). Unconfirmed.
+- **-16**: constant `65 00 00 00`.
+- **name+6**: not a column count (SA17's position); mostly 16, values up to 32874.
+- SA17's `data_root_page` (name+34) and `last_page` (name+50) do not hold here. The root page location is open.
 
 ## Open questions / next steps
 1. Closed form (or table + key derivation) for `T[k]`, and how `K` relates to the superblock (candidates: `file_id_lo` @0x08, 0x20..0x2C, 0x2BC..). That would remove the brute-force pass.
 2. Fix weak slots: per-slot confidence, and check the 155 low-zero pages.
-3. SA11 slotted-page / row layout vs SA17 (OpenSQLAnywhere `slotted.rs`), and the SYSTABLE row tag. OpenQBW's catalog walk expects SA17 shapes.
-4. Port into OpenSQLAnywhere: version detection from the page-0 fingerprint, `ApModel` variant for SA11, page-type masking, CRC optional.
+3. SYSTABLE: find the table root page, then confirm the -24/-12 count candidates by counting rows on the table's own pages. Bridge SYSCOLUMN owners to table_id (-30) to get column names per table.
+4. Report F5 upstream: it affects OpenQBW's tag matcher on any file not built from the 2017 template.
+5. Port into OpenSQLAnywhere: version detection from the page-0 fingerprint, `ApModel` variant for SA11, page-type masking, CRC optional.
