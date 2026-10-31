@@ -2,6 +2,8 @@
 
 Reverse engineering the QuickBooks Desktop **2012** company file (`.qbw`) format, so it can be read without QuickBooks.
 
+If you have an old QuickBooks 2012 company file and no working copy of QuickBooks, `scripts/qbw2012.py` exports its data to SQLite (standard-library Python, nothing to install), and `scripts/reports11.py` turns that into CSV reports you can open in Excel: trial balance, balance sheet, profit and loss, general ledger, and customer and supplier aging. See [Usage](#usage).
+
 [OpenQBW](https://github.com/Sigilweaver/OpenQBW) already reads QuickBooks 2018 and newer. QuickBooks 2012 files are built on an older database engine, and OpenQBW gets nothing out of them (0 tables, 0 transactions). This project works out the differences.
 
 ## The short version
