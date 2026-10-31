@@ -5,7 +5,7 @@ Row shape around the tag (offsets relative to the tag start):
   -24  u32  row count (matches live rows on the table's pages, NOTES F8)
   -12  u32  page count (matches pages owned by the table, NOTES F8)
    +0  05 00 00 00 <tid u32> 00 00 00 00 <stamp u32> 00 00 00 00 <len u8> <name>
-       stamp = minutes since 1600-01-01 (row change time)
+       stamp = minutes since 1600-02-29 (row change time; NOTES F5, F11)
   name+6  u16  unknown (not a column count: mostly 16, up to 32874)
 
 The same table can appear on several pages (older row versions); the row
@@ -16,7 +16,7 @@ import re
 import sys
 
 TAG = re.compile(rb"\x05\x00\x00\x00(.{4})\x00\x00\x00\x00(.{3}[\x0b-\x0e])\x00\x00\x00\x00([\x01-\x80])", re.S)
-EPOCH = datetime.datetime(1600, 1, 1)
+EPOCH = datetime.datetime(1600, 2, 29)
 
 
 def u32(b, o):
