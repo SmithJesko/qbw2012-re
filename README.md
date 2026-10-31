@@ -39,7 +39,7 @@ Applying this to the two QuickBooks 2012 sample companies recovers the full data
 
 Every QuickBooks table matches its catalog row count except two: Rock Castle's audit trail (23,746 of 23,748 rows) and Larry's `abmc_estimate_header` (the catalog says 7 rows, but only index pages for it are found). The other differences are SQL Anywhere's own system tables.
 
-None of this needs QuickBooks to check, so the work stays clean-room. The evidence comes from three independent places: the file's own stored balances and paid flags, structural invariants (every row's stored length must equal the gap to the next row, every typed row must end exactly on its length), and 26 unit tests on synthetic data that run without any company file.
+None of this needs QuickBooks to check, so the work stays clean-room. The evidence comes from three independent places: the file's own stored balances and paid flags, structural invariants (every row's stored length must equal the gap to the next row, every typed row must end exactly on its length), and 32 unit tests on synthetic data that run without any company file.
 
 The full technical findings, with evidence, are in [NOTES.md](NOTES.md).
 
@@ -56,7 +56,7 @@ The full technical findings, with evidence, are in [NOTES.md](NOTES.md).
 | Self-checks against stored account, customer and vendor balances | done; all match on both samples |
 | Open items (payments and credits applied to invoices and bills) | done; agree with every paid flag on both samples |
 | Accounting reports: trial balance, balance sheet, P&L, general ledger, AR/AP aging | done; all tie-outs pass on both samples |
-| Unit tests independent of company files | done (26 tests) |
+| Unit tests independent of company files | done (32 tests) |
 | One-step tool from the raw `.qbw` | done (`scripts/qbw2012.py`) |
 | Test on more 2012 files | needs files |
 

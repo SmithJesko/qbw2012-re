@@ -144,6 +144,8 @@ OpenSQLAnywhere#16 section 1.4 describes the true rotation sometimes being the p
 
 Because pred drops by 2 per sector pair, the flip starts at some sector and persists to the end of the page, which is the pattern #16 reports. A page whose anchor `r0` is already >= 256 (e.g. 297) is the same rule applied to sector 0. Sector 7 follows it too: `r7 = rot6` (odd pages) or `rot6 - 2` (even pages), then +256 if below 42 (22 pages on Rock Castle had `r7 = 41`; with 297 instead, 20 of 21 rows decode on one of them instead of 17).
 
+With the rule, every row that starts and ends in sectors 0..6 chains on Rock Castle (82395 / 82395, `scripts/rowpage11.py`), against 98.6% in F7.
+
 Before this rule, pages 2509..2514 on Rock Castle lost rows along a diagonal (one more broken sector per page), which looked like a bad step slot but wasn't: neither step nor base changes helped. With it, Rock Castle exports 65747 rows (57879 before) and Larry's 43979 (40904), and no long value is left incomplete.
 
 The sector-7 multiplier `d` is now chosen by row chaining and then by plausibility (0x00 and `'0'` +2, printable +1, >= 0x80 -1, from #16 follow-up 1) instead of zero count, which resolves `d + 64k` aliases that hid single rows.

@@ -37,6 +37,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ledger11 as L  # noqa: E402
+from check11 import open_export  # noqa: E402
 
 SECTIONS = [  # (heading, account types, natural side)
     ("Income", (10,), "credit"), ("Cost of Goods Sold", (11,), "debit"), ("Expense", (12,), "debit"),
@@ -115,7 +116,8 @@ class Book:
 
 
 def write(path, header, rows):
-    with open(path, "w", newline="", encoding="utf-8") as f:
+    # utf-8-sig: the byte-order mark makes Excel read the file as UTF-8
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f)
         w.writerow(header)
         w.writerows(rows)
@@ -317,7 +319,7 @@ def main(argv=None):
     ap.add_argument("--fiscal-year-start", type=int, default=1, choices=range(1, 13), metavar="MONTH")
     args = ap.parse_args(argv)
 
-    book = Book(sqlite3.connect(args.books), args.fiscal_year_start)
+    book = Book(open_export(args.books), args.fiscal_year_start)
     if not book.entries:
         sys.exit("no dated ledger entries in this export")
     as_of = parse_date(args.as_of) if args.as_of else parse_date(max(e.date for e in book.entries))

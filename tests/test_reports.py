@@ -70,7 +70,7 @@ def build(db):
 
 
 def read(path):
-    with open(path, newline="", encoding="utf-8") as f:
+    with open(path, newline="", encoding="utf-8-sig") as f:
         return list(csv.reader(f))
 
 
@@ -145,6 +145,11 @@ class ReportsTest(unittest.TestCase):
         checks = R.report_general_ledger(self.book, datetime.date(2016, 1, 1), datetime.date(2016, 12, 31),
                                          self.out)
         self.assertTrue(all(ok for _, ok, _ in checks), checks)
+
+    def test_csv_has_bom_for_excel(self):
+        R.report_trial_balance(self.book, datetime.date(2016, 12, 31), self.out)
+        with open(os.path.join(self.out, "trial_balance.csv"), "rb") as f:
+            self.assertEqual(f.read(3), b"\xef\xbb\xbf")
 
     def test_open_items_and_aging(self):
         checks = R.report_open_items(self.book, datetime.date(2016, 4, 15), self.out)

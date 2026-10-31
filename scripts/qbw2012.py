@@ -33,6 +33,11 @@ def load_bundled():
 
 def main(src, out):
     t0 = time.time()
+    if not os.path.isfile(src):
+        sys.exit(f"no such file: {src}")
+    problem = export11.check_output(out, src)
+    if problem:
+        sys.exit(problem)
     raw = open(src, "rb").read()
     if raw[0x2C4:0x2C4 + 28] != b"Sybase Inc., Copyright (c)20":
         sys.exit("not a SQL Anywhere 11 .qbw (no SA11 fingerprint at 0x2C4)")
@@ -53,4 +58,8 @@ def main(src, out):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        sys.exit("usage: qbw2012.py COPY.qbw OUT.sqlite\n"
+                 "  decodes a copy of a QuickBooks 2012 company file, exports it to OUT.sqlite\n"
+                 "  and runs the self-checks (exit status 1 if one fails)")
     sys.exit(main(*sys.argv[1:3]))

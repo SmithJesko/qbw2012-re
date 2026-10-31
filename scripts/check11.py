@@ -180,8 +180,18 @@ def check_duplicates(db):
         print(f"  {table}.{col}: {len(dup)} ids repeated: {ids}")
 
 
+def open_export(path):
+    """Open an export read-only, or exit with a plain message."""
+    if not os.path.isfile(path):
+        sys.exit(f"no such file: {path}")
+    with open(path, "rb") as f:
+        if f.read(16) != b"SQLite format 3\x00":
+            sys.exit(f"{path} is not an SQLite export (run qbw2012.py on the .qbw copy first)")
+    return sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+
+
 def main(path):
-    db = sqlite3.connect(path)
+    db = open_export(path)
     L.NOT_CENTS.clear()
     check_catalog(db)
     entries = L.entries(db)
@@ -199,4 +209,6 @@ def main(path):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        sys.exit("usage: check11.py BOOKS.sqlite")
     sys.exit(main(sys.argv[1]))

@@ -31,7 +31,28 @@ def sql_value(v):
     return v
 
 
+SQLITE_HEADER = b"SQLite format 3\x00"
+
+
+def check_output(out, *inputs):
+    """Refuse an output path that would overwrite an input or anything that
+    isn't a previous SQLite export. Returns an error message or None."""
+    if os.path.splitext(out)[1].lower() in (".qbw", ".qbb", ".qbm", ".tlg"):
+        return f"refusing to write the export to {out}: that is a QuickBooks file name; use e.g. books.sqlite"
+    for src in inputs:
+        if os.path.exists(out) and os.path.exists(src) and os.path.samefile(out, src):
+            return f"refusing to write the export over its own input {src}"
+    if os.path.exists(out):
+        with open(out, "rb") as f:
+            if f.read(16) != SQLITE_HEADER:
+                return f"refusing to overwrite {out}: it exists and is not an SQLite file"
+    return None
+
+
 def main(decoded, c7_path, out):
+    problem = check_output(out, decoded, c7_path)
+    if problem:
+        sys.exit(problem)
     export(open(decoded, "rb").read(), load_c7(c7_path), out)
 
 
@@ -70,8 +91,11 @@ def export(data, c7, out):
                     partial[p.owner] = partial.get(p.owner, 0) + 1
         rows.setdefault(p.owner, []).append(rec)
 
+    problem = check_output(out)
+    if problem:
+        raise ValueError(problem)
     if os.path.exists(out):
-        os.remove(out)
+        os.remove(out)  # a previous SQLite export; check_output allows only that
     db = sqlite3.connect(out)
     db.execute("CREATE TABLE _export_report (table_name TEXT, table_id INTEGER, "
                "exported INTEGER, failed INTEGER, catalog_rows INTEGER, long_incomplete INTEGER)")
@@ -97,4 +121,6 @@ def export(data, c7, out):
 
 
 if __name__ == "__main__":
+    if len(sys.argv) != 4:
+        sys.exit("usage: export11.py DECODED C7_JSON OUT.sqlite")
     main(*sys.argv[1:4])
